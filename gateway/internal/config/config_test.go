@@ -8,6 +8,22 @@ import (
 	"github.com/pcaokhai/vitts/gateway/internal/config"
 )
 
+// baseEnv is the minimum that lets Load succeed; tests override one key at a time.
+var baseEnv = map[string]string{
+	"VITTS_DATABASE_URL": "postgres://vitts:vitts@localhost:5432/vitts?sslmode=disable",
+}
+
+func withBase(overrides map[string]string) map[string]string {
+	merged := make(map[string]string, len(baseEnv)+len(overrides))
+	for k, v := range baseEnv {
+		merged[k] = v
+	}
+	for k, v := range overrides {
+		merged[k] = v
+	}
+	return merged
+}
+
 func env(pairs map[string]string) func(string) (string, bool) {
 	return func(name string) (string, bool) {
 		v, ok := pairs[name]
@@ -18,10 +34,11 @@ func env(pairs map[string]string) func(string) (string, bool) {
 func TestLoadDefaults(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := config.Load(env(nil))
+	cfg, err := config.Load(env(withBase(nil)))
 
 	require.NoError(t, err)
 	require.Equal(t, config.EnvDev, cfg.Env)
+	require.Positive(t, cfg.DatabaseMaxConns, "the pool must be bounded")
 	require.Equal(t, ":8080", cfg.HTTPAddr)
 	require.Equal(t, "info", cfg.LogLevel)
 	require.Empty(t, cfg.OTLPEndpoint)
@@ -36,12 +53,16 @@ func TestLoadRejectsBadValues(t *testing.T) {
 		variable string
 	}{
 		"unknown environment": {
-			vars:     map[string]string{"VITTS_ENV": "staging"},
+			vars:     withBase(map[string]string{"VITTS_ENV": "staging"}),
 			variable: "VITTS_ENV",
 		},
 		"unknown log level": {
-			vars:     map[string]string{"VITTS_LOG_LEVEL": "verbose"},
+			vars:     withBase(map[string]string{"VITTS_LOG_LEVEL": "verbose"}),
 			variable: "VITTS_LOG_LEVEL",
+		},
+		"missing database url": {
+			vars:     map[string]string{},
+			variable: "VITTS_DATABASE_URL",
 		},
 	}
 
@@ -62,7 +83,7 @@ func TestLoadRejectsBadValues(t *testing.T) {
 func TestLoadTreatsBlankAsUnset(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := config.Load(env(map[string]string{"VITTS_HTTP_ADDR": "   "}))
+	cfg, err := config.Load(env(withBase(map[string]string{"VITTS_HTTP_ADDR": "   "})))
 
 	require.NoError(t, err)
 	require.Equal(t, ":8080", cfg.HTTPAddr)
@@ -71,7 +92,7 @@ func TestLoadTreatsBlankAsUnset(t *testing.T) {
 func TestLoadNormalisesLogLevelCase(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := config.Load(env(map[string]string{"VITTS_LOG_LEVEL": "DEBUG"}))
+	cfg, err := config.Load(env(withBase(map[string]string{"VITTS_LOG_LEVEL": "DEBUG"})))
 
 	require.NoError(t, err)
 	require.Equal(t, "debug", cfg.LogLevel)

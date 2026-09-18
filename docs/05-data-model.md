@@ -146,6 +146,18 @@ create table audit_log (
 Job text: stored in S3 at `jobs/{tenant_id}/{job_id}/input.txt` (server-side encrypted),
 deleted when the job reaches a terminal state + 24 h. Never in Postgres.
 
+### Schema notes (task 1.2)
+
+- `plans` ships **empty**. Tier names, limits and prices are an open product decision;
+  `scripts/seed.sql` inserts a placeholder `dev` plan for local work only.
+- `synth_requests` partitions are created by `ensure_synth_requests_partition(at)`,
+  defined in migration 0001 and called by the maintenance job (task 2.8). A month with
+  no partition makes the insert fail rather than silently drop metering data.
+- Migration 0001 adds `check` constraints the sketch above omits: name lengths,
+  non-negative counters, and `octet_length(...) = 32` on `api_keys.key_hash` and
+  `audio_cache.cache_key`.
+- `jobs`, `job_segments` and `usage_daily` arrive in migration 0002 (task 2.1).
+
 ## 2. Redis keys
 
 | Key | Type | TTL | Purpose |

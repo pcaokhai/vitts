@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,9 +17,14 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver, used by the migrations job
+	"github.com/pressly/goose/v3"
+
 	"github.com/pcaokhai/vitts/gateway/internal/config"
 	gatewayhttp "github.com/pcaokhai/vitts/gateway/internal/http"
+	"github.com/pcaokhai/vitts/gateway/internal/storage/postgres"
 	"github.com/pcaokhai/vitts/gateway/internal/telemetry"
+	"github.com/pcaokhai/vitts/gateway/migrations"
 )
 
 // readHeaderTimeout bounds the header phase so a slow-loris client cannot hold a
@@ -31,7 +37,16 @@ const healthcheckTimeout = 3 * time.Second
 func main() {
 	// The image is distroless: no shell, no curl. The binary probes itself instead.
 	healthcheck := flag.Bool("healthcheck", false, "probe /healthz on the configured address and exit")
+	migrate := flag.Bool("migrate", false, "apply database migrations and exit")
 	flag.Parse()
+
+	if *migrate {
+		if err := runMigrations(); err != nil {
+			fmt.Fprintf(os.Stderr, "gateway: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if *healthcheck {
 		if err := probe(); err != nil {
@@ -66,7 +81,15 @@ func run() error {
 		logger.Error().Err(err).Msg("tracing disabled")
 	}
 
+	pool, err := postgres.Open(ctx, cfg.DatabaseURL, cfg.DatabaseMaxConns)
+	if err != nil {
+		return fmt.Errorf("postgres: %w", err)
+	}
+	defer pool.Close()
+
 	readiness := gatewayhttp.NewReadiness()
+	readiness.Register("postgres", pool.Ready)
+
 	server := &stdhttp.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           gatewayhttp.Router(logger, readiness),
@@ -164,4 +187,29 @@ func cutLast(s, sep string) (before, after string, found bool) {
 		}
 	}
 	return s, "", false
+}
+
+// runMigrations applies the embedded migrations. This is the deploy's migrations job
+// (docs/13-runbook.md); the serving process never migrates on startup, so several
+// replicas can roll without racing each other over the schema.
+func runMigrations() error {
+	cfg, err := config.LoadFromOS()
+	if err != nil {
+		return fmt.Errorf("configuration: %w", err)
+	}
+
+	sqlDB, err := sql.Open("pgx", cfg.DatabaseURL)
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+
+	goose.SetBaseFS(migrations.FS)
+	if err := goose.SetDialect("postgres"); err != nil {
+		return fmt.Errorf("goose dialect: %w", err)
+	}
+	if err := goose.Up(sqlDB, "."); err != nil {
+		return fmt.Errorf("migrate: %w", err)
+	}
+	return nil
 }

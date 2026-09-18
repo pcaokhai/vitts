@@ -24,11 +24,13 @@ const (
 // Config is the whole configuration of the gateway process. Fields arrive with the task
 // that needs them, so a missing variable always fails at the task that introduced it.
 type Config struct {
-	Env             Env
-	HTTPAddr        string
-	LogLevel        string
-	OTLPEndpoint    string // empty disables tracing export
-	ShutdownTimeout time.Duration
+	Env              Env
+	HTTPAddr         string
+	LogLevel         string
+	OTLPEndpoint     string // empty disables tracing export
+	DatabaseURL      string
+	DatabaseMaxConns int32
+	ShutdownTimeout  time.Duration
 }
 
 // Error reports a variable that is missing or unusable.
@@ -45,6 +47,9 @@ const (
 	defaultHTTPAddr        = ":8080"
 	defaultLogLevel        = "info"
 	defaultShutdownTimeout = 20 * time.Second
+	// defaultDatabaseMaxConns keeps the pool bounded and well under Postgres'
+	// default max_connections, which several gateway replicas share.
+	defaultDatabaseMaxConns = 20
 )
 
 var validLogLevels = map[string]struct{}{
@@ -54,11 +59,13 @@ var validLogLevels = map[string]struct{}{
 // Load reads the environment via lookup, which is os.LookupEnv outside tests.
 func Load(lookup func(string) (string, bool)) (Config, error) {
 	cfg := Config{
-		Env:             Env(value(lookup, "VITTS_ENV", string(EnvDev))),
-		HTTPAddr:        value(lookup, "VITTS_HTTP_ADDR", defaultHTTPAddr),
-		LogLevel:        strings.ToLower(value(lookup, "VITTS_LOG_LEVEL", defaultLogLevel)),
-		OTLPEndpoint:    value(lookup, "OTEL_EXPORTER_OTLP_ENDPOINT", ""),
-		ShutdownTimeout: defaultShutdownTimeout,
+		Env:              Env(value(lookup, "VITTS_ENV", string(EnvDev))),
+		HTTPAddr:         value(lookup, "VITTS_HTTP_ADDR", defaultHTTPAddr),
+		LogLevel:         strings.ToLower(value(lookup, "VITTS_LOG_LEVEL", defaultLogLevel)),
+		OTLPEndpoint:     value(lookup, "OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+		DatabaseURL:      value(lookup, "VITTS_DATABASE_URL", ""),
+		DatabaseMaxConns: defaultDatabaseMaxConns,
+		ShutdownTimeout:  defaultShutdownTimeout,
 	}
 
 	if cfg.Env != EnvDev && cfg.Env != EnvProd {
@@ -72,6 +79,15 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 			Variable: "VITTS_LOG_LEVEL",
 			Reason:   "must be one of trace, debug, info, warn, error",
 		}
+	}
+	if cfg.DatabaseURL == "" {
+		return Config{}, &Error{
+			Variable: "VITTS_DATABASE_URL",
+			Reason:   "is required; the gateway does not run without its system of record",
+		}
+	}
+	if _, err := url.Parse(cfg.DatabaseURL); err != nil {
+		return Config{}, &Error{Variable: "VITTS_DATABASE_URL", Reason: "must be a URL"}
 	}
 	if cfg.OTLPEndpoint != "" {
 		if _, err := url.Parse(cfg.OTLPEndpoint); err != nil {

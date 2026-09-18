@@ -2,6 +2,19 @@
 name: vitts
 
 services:
+  # Deploy order from docs/13-runbook.md: migrations job, then serving processes. The
+  # serving gateway never migrates on startup, so replicas cannot race over the schema.
+  migrate:
+    build:
+      context: ..
+      dockerfile: gateway/Dockerfile
+    command: ["-migrate"]
+    environment:
+      VITTS_DATABASE_URL: postgres://vitts:vitts@postgres:5432/vitts?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   gateway:
     build:
       context: ..
@@ -10,6 +23,7 @@ services:
       VITTS_ENV: ${VITTS_ENV:-dev}
       VITTS_HTTP_ADDR: ":8080"
       VITTS_LOG_LEVEL: ${VITTS_LOG_LEVEL:-info}
+      VITTS_DATABASE_URL: postgres://vitts:vitts@postgres:5432/vitts?sslmode=disable
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     ports:
       - "8080:8080"
@@ -21,8 +35,8 @@ services:
       timeout: 3s
       retries: 10
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 

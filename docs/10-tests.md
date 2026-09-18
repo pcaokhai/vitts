@@ -46,6 +46,11 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-27 | NFR-06 | Problem mapping | every `Problem.code` maps to its status; an unmapped error becomes `internal` with no detail | `internal/http/problem_test.go` | unit | done (1.1) | yes |
 | T-28 | FL-06 | Readiness registry | no checks → ready; a failing check → 503 naming it, probe error not leaked | `internal/http/router_test.go` | unit | done (1.1) | yes |
 | T-29 | NFR-07 | Request id is safe | caller id echoed, sanitised and length-capped; credentials never reach the access log | `internal/http/router_test.go` | unit | done (1.1) | yes |
+| T-30 | ADR-006 | Migration ships no pricing | fresh database → `plans` is empty | `internal/storage/postgres/postgres_integration_test.go` | int | done (1.2) | yes |
+| T-31 | FL-06 | Postgres readiness | pool up → ready; pool closed → `/readyz` 503 naming postgres | `postgres_integration_test.go`, `internal/http/router_test.go` | int + unit | done (1.2) | yes |
+| T-32 | US-17 | Revoked key stops resolving | revoke → lookup by hash finds nothing; another tenant cannot revoke | `postgres_integration_test.go` | int | done (1.2) | yes |
+| T-33 | NFR-11 | Partition routing | row lands in its month's partition; a month with no partition errors | `postgres_integration_test.go` | int | done (1.2) | yes |
+| T-34 | FL-07 | Partition helper is idempotent | calling twice for one month yields the same partition | `postgres_integration_test.go` | int | done (1.2) | yes |
 | T-26 | US-02 | Stack smoke | `make up` → worker healthy; one streamed synthesis, frames ordered, `last=true` present | `scripts/smoke.sh` | e2e | done (0.6, gateway leg 1.1) | no |
 | T-25 | US-01 | First frame latency | TTFA ≤ 150 ms for a 21-char input on the bench machine | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.4) | no |
 | T-24 | NFR-06 | Worker config validation | missing revision / partial `VITTS_S3_*` → exit non-zero with a named variable | `worker/tests/test_config.py` | unit | done (0.3) | yes |

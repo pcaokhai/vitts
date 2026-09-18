@@ -4,11 +4,15 @@
 # exists the real command runs and its failure fails the target.
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
-.PHONY: help setup generate lint test test-model test-integration up down smoke bench loadtest
+.PHONY: help setup generate lint test test-model test-integration migrate seed up down smoke bench loadtest
 
 # --env-file: .env.example is the single source of the pinned revision and the local
 # dev credentials, so the compose file never repeats them.
 COMPOSE := docker compose --env-file .env.example -f deploy/docker-compose.yml
+
+# The gateway has no cgo dependency and ships as a static binary, so tests link the same
+# way. It also sidesteps a broken system linker on some macOS SDK versions.
+GOTEST := CGO_ENABLED=0 go test
 
 # $(call pending,<task id>,<what>) — printed when the owning task has not landed.
 pending = echo "  ..  $(2) — lands in task $(1)"
@@ -22,7 +26,8 @@ setup: ## Install the toolchain (go, uv, buf, oapi-codegen, sqlc, golangci-lint,
 
 generate: ## Regenerate proto, OpenAPI and sqlc code (CI fails on diff)
 	@if [ -f proto/buf.gen.yaml ]; then cd proto && buf generate && python3 ../scripts/postgen.py; else $(call pending,0.2,proto stubs); fi
-	@if [ -f gateway/Makefile ]; then $(MAKE) -C gateway generate; else $(call pending,1.14,openapi + sqlc); fi
+	@if [ -f gateway/sqlc.yaml ]; then cd gateway && sqlc generate; else $(call pending,1.2,sqlc); fi
+	@$(call pending,1.14,openapi server stubs)
 
 lint: ## golangci-lint, ruff, mypy, buf lint
 	@if command -v gitleaks >/dev/null; then gitleaks dir . --no-banner --redact; else $(call pending,0.2,gitleaks); fi
@@ -31,14 +36,27 @@ lint: ## golangci-lint, ruff, mypy, buf lint
 	@if [ -f worker/pyproject.toml ]; then cd worker && uv run ruff check . && uv run ruff format --check . && uv run mypy .; else $(call pending,0.3,ruff + mypy); fi
 
 test: ## Unit tests, both languages
-	@if [ -f gateway/go.mod ]; then cd gateway && go test ./...; else $(call pending,1.1,go test); fi
+	@if [ -f gateway/go.mod ]; then cd gateway && $(GOTEST) ./...; else $(call pending,1.1,go test); fi
 	@if [ -f worker/pyproject.toml ]; then cd worker && uv run pytest; else $(call pending,0.3,pytest); fi
+
+# Same code path as the deploy's migrations job: the binary carries the migrations.
+migrate: ## Apply database migrations to VITTS_DATABASE_URL
+	@if [ -f gateway/go.mod ]; then \
+		cd gateway && CGO_ENABLED=0 go run ./cmd/gateway -migrate; \
+	else $(call pending,1.2,migrations); fi
+
+# Dev-only by definition, so it runs psql inside the stack's Postgres rather than
+# requiring a client on the host.
+seed: ## Insert development-only rows (placeholder plan tiers); needs `make migrate` first
+	@if [ -f scripts/seed.sql ]; then \
+		$(COMPOSE) exec -T postgres psql -U vitts -d vitts -v ON_ERROR_STOP=1 < scripts/seed.sql; \
+	else $(call pending,1.2,seed script); fi
 
 test-model: ## Worker tests that load the real ZeroTTS weights (~200 MB download)
 	@if [ -f worker/pyproject.toml ]; then cd worker && uv run pytest -m model; else $(call pending,0.3,model tests); fi
 
 test-integration: ## Testcontainers (Postgres, Redis, MinIO) + fake worker
-	@if [ -f gateway/go.mod ]; then cd gateway && go test -tags=integration ./...; else $(call pending,1.2,integration tests); fi
+	@if [ -f gateway/go.mod ]; then cd gateway && $(GOTEST) -tags=integration ./...; else $(call pending,1.2,integration tests); fi
 
 up: ## Start the local stack
 	@if [ -f deploy/docker-compose.yml ]; then $(COMPOSE) up -d; else $(call pending,0.6,local stack); fi
