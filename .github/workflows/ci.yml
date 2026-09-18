@@ -25,6 +25,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gateway/go.mod
+          cache-dependency-path: gateway/go.sum
+      - uses: astral-sh/setup-uv@v5
+      - name: Toolchain
+        run: make setup
+      - name: Add GOPATH/bin to PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
       - name: Lint
         run: make lint
 
@@ -34,6 +44,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gateway/go.mod
+          cache-dependency-path: gateway/go.sum
+      - uses: astral-sh/setup-uv@v5
+      - name: Toolchain
+        run: make setup
+      - name: Add GOPATH/bin to PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
       - name: Unit tests
         run: make test
 
@@ -41,6 +61,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gateway/go.mod
+          cache-dependency-path: gateway/go.sum
+      - uses: astral-sh/setup-uv@v5
+      - name: Toolchain
+        run: make setup
+      - name: Add GOPATH/bin to PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
       - name: Regenerate contracts
         run: make generate
       - name: Fail on drift
