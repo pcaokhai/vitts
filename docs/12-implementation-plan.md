@@ -4,16 +4,16 @@ Order matters: each task is a single PR with tests, sized for one Claude Code se
 Definition of done for every task: code + tests + docs updated + CI green + `make smoke`
 passes locally where applicable. Do not start a task whose dependencies are unmerged.
 
-## M0 — Spike and foundations (week 1–2)
+## M0 — Spike and foundations (week 1–2) — **done**, see `docs/reports/m0-summary.md`
 
-| # | Task | Depends | Output |
-|---|------|---------|--------|
-| 0.1 | Repo scaffold: `Makefile`, `.editorconfig`, `.gitignore`, `CODEOWNERS`, CI skeleton (lint only) | — | green CI on empty repo |
-| 0.2 | `proto/worker.proto` + `buf` config + generated Go/Python stubs checked in; T-17 | 0.1 | `make generate` |
-| 0.3 | Worker: engine wrapper loading ZeroTTS, env config, `Health` RPC, warm-up, S3 mirror | 0.2 | US-02 |
-| 0.4 | Worker: `Synthesize` streaming with cooperative cancel; T-01, T-02 | 0.3 | US-01 |
-| 0.5 | `scripts/bench.py`: RTF/TTFA for 1×8, 2×4 threads on target box; write `docs/reports/bench-m0.md` and update A1/A2 | 0.4 | numbers |
-| 0.6 | Compose: worker + MinIO + Postgres + Redis; `make smoke` calls Health | 0.3 | local stack |
+| # | Task | Depends | Output | Status |
+|---|------|---------|--------|--------|
+| 0.1 | Repo scaffold: `Makefile`, `.editorconfig`, `.gitignore`, `CODEOWNERS`, CI skeleton (lint only) | — | green CI on empty repo | done `a1f06f4` |
+| 0.2 | `proto/worker.proto` + `buf` config + generated Go/Python stubs checked in; T-17 | 0.1 | `make generate` | done `c7ab53f` |
+| 0.3 | Worker: engine wrapper loading ZeroTTS, env config, `Health` RPC, warm-up, S3 mirror | 0.2 | US-02 | done `4847aaf` |
+| 0.4 | Worker: `Synthesize` streaming with cooperative cancel; T-01, T-02 | 0.3 | US-01 | done `dc95e82` |
+| 0.5 | `scripts/bench.py`: RTF/TTFA for 1×8, 2×4 threads on target box; write `docs/reports/bench-m0.md` and update A1/A2 | 0.4 | numbers | done `c11544f` |
+| 0.6 | Compose: worker + MinIO + Postgres + Redis; `make smoke` calls Health | 0.3 | local stack | done `c11544f` |
 
 ## M1 — Core API (week 3–5)
 

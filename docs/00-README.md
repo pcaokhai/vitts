@@ -23,6 +23,8 @@ in the same PR.
 | 12 | `12-implementation-plan.md` | Milestones and task order for Claude Code | Engineering |
 | 13 | `13-runbook.md` | Operating the system: deploy, alerts, incidents | Ops |
 | 14 | `14-engineering-standards.md` | Coding, testing, review, and git standards | Engineering |
+| — | `plans/` | Per-task implementation plans written before the code | Engineering |
+| — | `reports/` | Measured results and milestone close-outs | Engineering |
 
 Agent operating instructions live in `/CLAUDE.md` and `/.claude/rules/*.md` (repo root),
 derived from these docs. They are not system documentation.
