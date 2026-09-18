@@ -1,0 +1,338 @@
+openapi: 3.1.0
+info:
+  title: ViTTS Gateway API
+  version: 1.0.0
+  description: |
+    Vietnamese text-to-speech API. Authenticate with `Authorization: Bearer <api_key>`.
+    Errors follow RFC 9457 (`application/problem+json`) with a stable `code`.
+    Rate-limited responses carry `Retry-After` and `X-RateLimit-*` headers.
+servers:
+  - url: https://api.vitts.dev
+security:
+  - ApiKey: []
+tags: [Synthesis, Jobs, Voices, Usage, Keys, Admin]
+paths:
+  /v1/synthesize:
+    post:
+      tags: [Synthesis]
+      operationId: synthesize
+      summary: Synthesize text and return a complete audio file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SynthesizeRequest' }
+      responses:
+        '200':
+          description: Audio file
+          headers:
+            X-Request-Id: { schema: { type: string } }
+            X-Cache: { schema: { type: string, enum: [HIT, MISS] } }
+            X-Audio-Duration-Ms: { schema: { type: integer } }
+            X-Chars-Billed: { schema: { type: integer } }
+          content:
+            audio/wav: { schema: { type: string, format: binary } }
+            audio/mpeg: { schema: { type: string, format: binary } }
+            audio/ogg: { schema: { type: string, format: binary } }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '402': { $ref: '#/components/responses/Problem' }
+        '413': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Overloaded' }
+  /v1/synthesize/stream:
+    post:
+      tags: [Synthesis]
+      operationId: synthesizeStream
+      summary: Synthesize and stream audio chunks as they are produced
+      description: |
+        Returns `Transfer-Encoding: chunked`. For `audio/wav` the RIFF header declares an
+        unknown length (0xFFFFFFFF). For `audio/ogg` (Opus) pages are emitted per chunk.
+        Closing the connection cancels inference. Same request body as `/v1/synthesize`.
+        WebSocket variant: `GET /v1/synthesize/ws` with the same JSON as first message and
+        binary frames back; text frame `{"type":"end"}` closes; client `{"type":"cancel"}` aborts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SynthesizeRequest' }
+      responses:
+        '200':
+          description: Chunked audio stream
+          content:
+            audio/wav: { schema: { type: string, format: binary } }
+            audio/ogg: { schema: { type: string, format: binary } }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Overloaded' }
+  /v1/jobs:
+    post:
+      tags: [Jobs]
+      operationId: createJob
+      summary: Create an async synthesis job for long text
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, maxLength: 128 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/JobCreateRequest' }
+      responses:
+        '202':
+          description: Job accepted (or existing job returned for a repeated idempotency key)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    get:
+      tags: [Jobs]
+      operationId: listJobs
+      parameters:
+        - { in: query, name: status, schema: { $ref: '#/components/schemas/JobStatus' } }
+        - { in: query, name: cursor, schema: { type: string } }
+        - { in: query, name: limit, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        '200':
+          description: Page of jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Job' } }
+                  next_cursor: { type: string, nullable: true }
+  /v1/jobs/{jobId}:
+    get:
+      tags: [Jobs]
+      operationId: getJob
+      parameters: [{ in: path, name: jobId, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Job, content: { application/json: { schema: { $ref: '#/components/schemas/Job' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [Jobs]
+      operationId: cancelJob
+      parameters: [{ in: path, name: jobId, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Job cancelled or already terminal, content: { application/json: { schema: { $ref: '#/components/schemas/Job' } } } }
+  /v1/voices:
+    get:
+      tags: [Voices]
+      operationId: listVoices
+      security: [{ ApiKey: [] }, {}]
+      responses:
+        '200':
+          description: Voice catalogue
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Voice' } }
+  /v1/usage:
+    get:
+      tags: [Usage]
+      operationId: getUsage
+      parameters:
+        - { in: query, name: from, schema: { type: string, format: date } }
+        - { in: query, name: to, schema: { type: string, format: date } }
+        - { in: query, name: format, schema: { type: string, enum: [json, csv], default: json } }
+      responses:
+        '200':
+          description: Daily usage
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UsageReport' }
+            text/csv: { schema: { type: string } }
+  /v1/keys:
+    get:
+      tags: [Keys]
+      operationId: listKeys
+      responses:
+        '200': { description: Keys (prefix only), content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ApiKey' } } } } }
+    post:
+      tags: [Keys]
+      operationId: createKey
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 64 }
+                scopes: { type: array, items: { $ref: '#/components/schemas/Scope' }, default: [synth] }
+                store_text: { type: boolean, default: false }
+      responses:
+        '201':
+          description: Key created; `secret` is shown exactly once
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/ApiKey' }
+                  - { type: object, properties: { secret: { type: string } } }
+  /v1/keys/{keyId}:
+    delete:
+      tags: [Keys]
+      operationId: revokeKey
+      parameters: [{ in: path, name: keyId, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '204': { description: Revoked }
+  /admin/v1/tenants:
+    post:
+      tags: [Admin]
+      operationId: adminCreateTenant
+      security: [{ AdminKey: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, plan_id]
+              properties:
+                name: { type: string }
+                plan_id: { type: string }
+      responses:
+        '201': { description: Tenant with first admin key }
+  /healthz:
+    get:
+      security: []
+      operationId: healthz
+      responses: { '200': { description: Liveness } }
+  /readyz:
+    get:
+      security: []
+      operationId: readyz
+      responses:
+        '200': { description: Ready (Postgres, Redis, ≥1 worker) }
+        '503': { description: Not ready }
+components:
+  securitySchemes:
+    ApiKey: { type: http, scheme: bearer, bearerFormat: 'zt_live_...' }
+    AdminKey: { type: apiKey, in: header, name: X-Admin-Key }
+  responses:
+    Problem:
+      description: Error
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    RateLimited:
+      description: Rate limit or quota exceeded
+      headers:
+        Retry-After: { schema: { type: integer } }
+        X-RateLimit-Limit: { schema: { type: integer } }
+        X-RateLimit-Remaining: { schema: { type: integer } }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Overloaded:
+      description: No worker capacity within the latency budget
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code:
+          type: string
+          description: Stable machine code
+          enum: [invalid_request, text_too_long, unknown_voice, unauthorized, forbidden_scope,
+                 quota_exceeded, rate_limited, concurrency_limited, overloaded, job_not_found,
+                 idempotency_conflict, internal]
+        request_id: { type: string }
+    SynthesisParams:
+      type: object
+      properties:
+        cfg_scale: { type: number, minimum: 1, maximum: 3, default: 1.0 }
+        audio_temperature: { type: number, minimum: 0.1, maximum: 1.5, default: 0.8 }
+        audio_topk: { type: integer, minimum: 1, maximum: 100, default: 25 }
+        audio_topp: { type: number, minimum: 0.1, maximum: 1, default: 0.95 }
+        audio_repetition_penalty: { type: number, minimum: 1, maximum: 2, default: 1.2 }
+    SynthesizeRequest:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 3000 }
+        voice: { type: string, default: maichi }
+        format: { type: string, enum: [wav, mp3, ogg_opus], default: wav }
+        sample_rate: { type: integer, enum: [8000, 16000, 24000, 48000], default: 48000 }
+        normalize: { type: boolean, default: true }
+        params: { $ref: '#/components/schemas/SynthesisParams' }
+    JobCreateRequest:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 100000 }
+        voice: { type: string, default: maichi }
+        format: { type: string, enum: [mp3, ogg_opus, wav], default: mp3 }
+        sample_rate: { type: integer, enum: [8000, 16000, 24000, 48000], default: 48000 }
+        normalize: { type: boolean, default: true }
+        params: { $ref: '#/components/schemas/SynthesisParams' }
+        webhook_url: { type: string, format: uri, description: 'HTTPS only; public IP only' }
+        metadata: { type: object, additionalProperties: { type: string }, maxProperties: 10 }
+    JobStatus:
+      type: string
+      enum: [queued, segmenting, synthesizing, merging, completed, failed, cancelled]
+    Job:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/JobStatus' }
+        total_chars: { type: integer }
+        segments_total: { type: integer }
+        segments_done: { type: integer }
+        output_url: { type: string, nullable: true, description: 'Signed URL, valid 24 h' }
+        duration_ms: { type: integer, nullable: true }
+        error: { type: string, nullable: true }
+        metadata: { type: object, additionalProperties: { type: string } }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time, nullable: true }
+    Voice:
+      type: object
+      properties:
+        id: { type: string }
+        display_name: { type: string }
+        gender: { type: string }
+        tags: { type: array, items: { type: string } }
+        preview_url: { type: string }
+    Scope:
+      type: string
+      enum: [synth, jobs, usage, keys]
+    ApiKey:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        prefix: { type: string, description: 'First 8 chars of the key' }
+        scopes: { type: array, items: { $ref: '#/components/schemas/Scope' } }
+        store_text: { type: boolean }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time, nullable: true }
+        revoked_at: { type: string, format: date-time, nullable: true }
+    UsageReport:
+      type: object
+      properties:
+        plan: { type: string }
+        period_chars_used: { type: integer }
+        period_chars_limit: { type: integer }
+        days:
+          type: array
+          items:
+            type: object
+            properties:
+              day: { type: string, format: date }
+              chars: { type: integer }
+              audio_ms: { type: integer }
+              requests: { type: integer }
+              cache_hits: { type: integer }

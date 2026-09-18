@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package vitts.worker.v1;
+
+option go_package = "github.com/pcaokhai/vitts/gateway/internal/gen/workerpb;workerpb";
+
+// Internal contract between the Go gateway and the Python inference worker.
+// Breaking changes require a new package version (vitts.worker.v2).
+service Worker {
+  // Streams PCM16 mono frames at sample_rate as soon as they are generated.
+  // Honours deadline and cancellation: the worker must stop inference promptly.
+  rpc Synthesize(SynthesizeRequest) returns (stream AudioFrame);
+
+  // Splits long text into utterance-sized segments using upstream chunker.
+  rpc Segment(SegmentRequest) returns (SegmentResponse);
+
+  // Encodes and merges already-synthesized PCM segments into a container format.
+  rpc Merge(MergeRequest) returns (MergeResponse);
+
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message SynthesisParams {
+  float cfg_scale = 1;              // default 1.0
+  float audio_temperature = 2;      // default 0.8
+  int32 audio_topk = 3;             // default 25
+  float audio_topp = 4;             // default 0.95
+  float audio_repetition_penalty = 5; // default 1.2
+  int32 eoa_extra_frames = 6;       // default 1
+}
+
+message SynthesizeRequest {
+  string request_id = 1;            // for tracing and single-flight
+  string text = 2;                  // ≤ 3000 chars, UTF-8, already validated by gateway
+  string voice_id = 3;
+  bool normalize = 4;
+  SynthesisParams params = 5;
+  int32 output_sample_rate = 6;     // 8000 | 16000 | 24000 | 48000; 0 = native 48000
+}
+
+message AudioFrame {
+  uint32 seq = 1;                   // strictly increasing from 0
+  bytes pcm16 = 2;                  // little-endian int16 mono
+  int32 sample_rate = 3;
+  bool last = 4;                    // final frame; may carry empty pcm16
+  uint32 chars_consumed = 5;        // running count for partial metering on cancel
+}
+
+message SegmentRequest {
+  string text = 1;                  // up to 100k chars
+  bool normalize = 2;
+  int32 max_chunk_sec = 3;          // default 15
+}
+
+message SegmentResponse {
+  repeated string segments = 1;
+  string model_version = 2;
+}
+
+message MergeRequest {
+  repeated string s3_keys = 1;      // ordered PCM16 segment objects
+  string output_s3_key = 2;
+  string format = 3;                // mp3 | ogg_opus | wav
+  int32 sample_rate = 4;
+  int32 gap_ms = 5;                 // silence between segments, default 250
+}
+
+message MergeResponse {
+  string output_s3_key = 1;
+  int64 duration_ms = 2;
+  int64 bytes = 3;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  bool ready = 1;
+  string model_version = 2;         // hf revision hash
+  int32 slots_total = 3;
+  int32 slots_busy = 4;
+  float rtf_ewma = 5;
+  repeated string voice_ids = 6;
+}
