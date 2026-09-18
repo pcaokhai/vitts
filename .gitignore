@@ -29,3 +29,5 @@ node_modules/
 
 # worker model cache (VITTS_MODEL_DIR)
 /worker/.model/
+
+# local compose overrides (deploy/.env is committed as a dev default)

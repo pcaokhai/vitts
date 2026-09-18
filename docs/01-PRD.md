@@ -115,8 +115,8 @@ Console shows usage by day and lets the tenant revoke keys. See `06-flows.md`.
 
 | ID | Assumption | Validation |
 |----|------------|------------|
-| A1 | RTF ≈ 0.5 holds with 8 threads on Hetzner CCX / AWS c7i CPUs | `zerotts bench` on target hardware in M0 |
-| A2 | Two 4-thread processes per 8-vCPU node still beat real time | Benchmark in M0 |
+| A1 | RTF ≈ 0.5 holds with 8 threads on Hetzner CCX / AWS c7i CPUs | **Partly confirmed (0.5):** worst RTF 0.32× on Apple M4 Pro, `docs/reports/bench-m0.md`. Re-run `make bench` on Hetzner/AWS before treating it as settled there. |
+| A2 | Two 4-thread processes per 8-vCPU node still beat real time | **Confirmed (0.5):** worst RTF 0.37× with 2×4 threads, `docs/reports/bench-m0.md` |
 | A3 | Developers accept preset-only voices at launch | Landing page survey, first 10 interviews |
 | A4 | Cache hit ratio ≥ 50% for IVR/soundbox tenants | Measure in first 30 days |
 | A5 | $6–8 per million characters clears willingness-to-pay | Pricing page test, sales calls |

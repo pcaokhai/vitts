@@ -1,0 +1,11 @@
+**/.venv/
+**/__pycache__/
+**/.mypy_cache/
+**/.pytest_cache/
+**/.ruff_cache/
+.git/
+docs/
+gateway/
+deploy/
+scripts/
+worker/tests/

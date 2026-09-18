@@ -1,0 +1,94 @@
+# Local development stack. Production overrides live in docker-compose.prod.yml (3.3).
+name: vitts
+
+services:
+  worker:
+    build:
+      context: ..
+      dockerfile: worker/Dockerfile
+    environment:
+      VITTS_GRPC_ADDR: ":50051"
+      VITTS_MODEL_REPO: ${VITTS_MODEL_REPO:-zeroweight-ai/ZeroTTS}
+      VITTS_MODEL_REVISION: ${VITTS_MODEL_REVISION:?pin a commit hash, see .env.example}
+      VITTS_MODEL_DIR: /var/lib/vitts/model
+      ORT_INTRA_OP_THREADS: ${ORT_INTRA_OP_THREADS:-8}
+      VITTS_MAX_TEXT_CHARS: ${VITTS_MAX_TEXT_CHARS:-3000}
+    volumes:
+      - model:/var/lib/vitts/model
+    ports:
+      - "50051:50051"
+    healthcheck:
+      # Readiness is the Health RPC, not "the port is open": weights take seconds to load.
+      test: ["CMD", "python", "-m", "vitts_worker.healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: vitts
+      POSTGRES_PASSWORD: vitts
+      POSTGRES_DB: vitts
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vitts -d vitts"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    # quay.io is MinIO's own registry; digests pinned per
+    # docs/14-engineering-standards.md § Security.
+    image: quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${VITTS_S3_ACCESS_KEY:-vitts-dev}
+      MINIO_ROOT_PASSWORD: ${VITTS_S3_SECRET_KEY:-vitts-dev-secret}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio-init:
+    image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+      mc alias set local http://minio:9000 ${VITTS_S3_ACCESS_KEY:-vitts-dev} ${VITTS_S3_SECRET_KEY:-vitts-dev-secret} &&
+      mc mb --ignore-existing local/${VITTS_S3_BUCKET:-vitts}
+      "
+
+volumes:
+  model:
+  pgdata:
+  redisdata:
+  miniodata:

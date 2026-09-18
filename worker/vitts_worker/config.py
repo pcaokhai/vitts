@@ -69,7 +69,7 @@ class Config:
             raise ConfigError("VITTS_MODEL_MIRROR_S3 is set but VITTS_S3_* is incomplete")
 
         return cls(
-            grpc_addr=src.get("VITTS_GRPC_ADDR", ":50051"),
+            grpc_addr=_listen_addr(src.get("VITTS_GRPC_ADDR", ":50051")),
             model_repo=repo,
             model_revision=revision,
             model_mirror_s3=mirror,
@@ -80,6 +80,18 @@ class Config:
             max_text_chars=_int(src, "VITTS_MAX_TEXT_CHARS", 3000),
             s3=s3,
         )
+
+
+def _listen_addr(value: str) -> str:
+    """Accept the Go-style `:port` used across `docs/08-variables.md` and compose.
+
+    grpc.aio needs an explicit host, so a bare `:port` binds to every interface the way
+    the Go gateway's `VITTS_HTTP_ADDR` does, instead of failing at startup.
+    """
+    addr = value.strip()
+    if not addr:
+        raise ConfigError("VITTS_GRPC_ADDR must not be empty")
+    return f"[::]{addr}" if addr.startswith(":") else addr
 
 
 def _s3_from(src: Mapping[str, str]) -> S3Config | None:

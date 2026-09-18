@@ -6,7 +6,9 @@ SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 .PHONY: help setup generate lint test test-model test-integration up down smoke bench loadtest
 
-COMPOSE := docker compose -f deploy/docker-compose.yml
+# --env-file: .env.example is the single source of the pinned revision and the local
+# dev credentials, so the compose file never repeats them.
+COMPOSE := docker compose --env-file .env.example -f deploy/docker-compose.yml
 
 # $(call pending,<task id>,<what>) — printed when the owning task has not landed.
 pending = echo "  ..  $(2) — lands in task $(1)"
@@ -47,7 +49,7 @@ smoke: ## End-to-end: health, sync, stream, job
 	@if [ -x scripts/smoke.sh ]; then ./scripts/smoke.sh; else $(call pending,0.6,smoke script); fi
 
 bench: ## Worker RTF/TTFA on this machine
-	@if [ -f scripts/bench.py ]; then uv run scripts/bench.py; else $(call pending,0.5,bench script); fi
+	@if [ -f scripts/bench.py ]; then cd worker && uv run ../scripts/bench.py --out ../docs/reports/bench-m0.md; else $(call pending,0.5,bench script); fi
 
 loadtest: ## k6 scenarios against the local stack
 	@if [ -d scripts/k6 ]; then k6 run scripts/k6/steady.js; else $(call pending,3.2,k6 scenarios); fi

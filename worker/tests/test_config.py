@@ -17,12 +17,30 @@ S3 = {
 def test_defaults_match_documented_values() -> None:
     cfg = Config.from_env(BASE)
 
-    assert cfg.grpc_addr == ":50051"
+    assert cfg.grpc_addr == "[::]:50051"  # grpc.aio needs an explicit host
     assert cfg.model_repo == "zeroweight-ai/ZeroTTS"
     assert cfg.ort_intra_op_threads == 8
     assert cfg.max_text_chars == 3000
     assert cfg.s3 is None
     assert cfg.model_mirror_s3 is None
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        (":50051", "[::]:50051"),
+        ("0.0.0.0:50051", "0.0.0.0:50051"),
+        ("127.0.0.1:9999", "127.0.0.1:9999"),
+        ("  :50051  ", "[::]:50051"),
+    ],
+)
+def test_listen_address_accepts_go_style_port_only(configured: str, expected: str) -> None:
+    assert Config.from_env({**BASE, "VITTS_GRPC_ADDR": configured}).grpc_addr == expected
+
+
+def test_empty_listen_address_is_rejected() -> None:
+    with pytest.raises(ConfigError, match="VITTS_GRPC_ADDR"):
+        Config.from_env({**BASE, "VITTS_GRPC_ADDR": "   "})
 
 
 def test_revision_is_required() -> None:
