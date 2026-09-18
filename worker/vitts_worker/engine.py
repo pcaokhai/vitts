@@ -27,14 +27,15 @@ log = structlog.get_logger(__name__)
 
 RTF_EWMA_ALPHA = 0.2
 
-# Characters of Vietnamese per second of audio. Used only to meter a request the caller
-# cancelled mid-stream: upstream exposes no text position, so a cancelled request is
-# billed from the audio it actually produced. A completed request is always billed the
-# exact character count, so this never affects a normal invoice.
+# Characters of Vietnamese per second of audio, fixed by ADR-010. Used only to meter a
+# request the caller cancelled mid-stream: upstream exposes no text position, so a
+# cancelled request is billed from the audio it actually produced. A completed request
+# is always billed the exact character count, so this never affects a normal invoice.
 #
 # Measured in task 0.4 over 4 voices x 3 lengths: 14.6 - 25.8 chars/s, mean 18.2. The
 # floor of that range is deliberate: an estimate that is too low under-bills the tenant,
-# one that is too high charges them for audio they cancelled and never received.
+# one that is too high charges them for audio they cancelled and never received. The
+# gateway measures delivered audio itself and does not bill from this field (ADR-010).
 CHARS_PER_AUDIO_SECOND = 14.5
 
 # Everything inference needs and nothing else: the repo also ships ~500 MB of demo
