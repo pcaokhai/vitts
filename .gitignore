@@ -1,0 +1,28 @@
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# go
+/gateway/bin/
+*.test
+coverage.out
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# node (console, M3.5)
+node_modules/
+.next/
+
+# local stack + artefacts
+/deploy/data/
+/docs/reports/*.local.md
+*.wav
+*.mp3
+*.ogg

@@ -1,0 +1,8 @@
+# Solo repo: one owner reviews everything. Contracts and security need extra care.
+*                       @pcaokhai
+
+/proto/                 @pcaokhai
+/docs/api/              @pcaokhai
+/docs/adr/              @pcaokhai
+/gateway/migrations/    @pcaokhai
+/.github/               @pcaokhai

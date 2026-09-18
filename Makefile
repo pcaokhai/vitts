@@ -1,0 +1,50 @@
+# ViTTS Gateway. Targets are the ones documented in CLAUDE.md § Commands.
+# A target whose owning task has not landed yet reports what it is waiting on and
+# exits 0, so CI is green on a scaffold-only tree (task 0.1). Once the guarded path
+# exists the real command runs and its failure fails the target.
+SHELL := /usr/bin/env bash
+.DEFAULT_GOAL := help
+.PHONY: help setup generate lint test test-integration up down smoke bench loadtest
+
+COMPOSE := docker compose -f deploy/docker-compose.yml
+
+# $(call pending,<task id>,<what>) — printed when the owning task has not landed.
+pending = echo "  ..  $(2) — lands in task $(1)"
+
+help: ## List targets
+	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
+		awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+
+setup: ## Install the toolchain (go, uv, buf, oapi-codegen, sqlc, golangci-lint, k6)
+	@if [ -x scripts/setup.sh ]; then ./scripts/setup.sh; else $(call pending,0.2,toolchain bootstrap); fi
+
+generate: ## Regenerate proto, OpenAPI and sqlc code (CI fails on diff)
+	@if [ -f proto/buf.gen.yaml ]; then buf generate proto; else $(call pending,0.2,proto stubs); fi
+	@if [ -f gateway/Makefile ]; then $(MAKE) -C gateway generate; else $(call pending,1.14,openapi + sqlc); fi
+
+lint: ## golangci-lint, ruff, mypy, buf lint
+	@if [ -f proto/buf.yaml ]; then buf lint proto; else $(call pending,0.2,buf lint); fi
+	@if [ -f gateway/go.mod ]; then cd gateway && golangci-lint run ./...; else $(call pending,1.1,golangci-lint); fi
+	@if [ -f worker/pyproject.toml ]; then cd worker && uv run ruff check . && uv run ruff format --check . && uv run mypy .; else $(call pending,0.3,ruff + mypy); fi
+
+test: ## Unit tests, both languages
+	@if [ -f gateway/go.mod ]; then cd gateway && go test ./...; else $(call pending,1.1,go test); fi
+	@if [ -f worker/pyproject.toml ]; then cd worker && uv run pytest; else $(call pending,0.3,pytest); fi
+
+test-integration: ## Testcontainers (Postgres, Redis, MinIO) + fake worker
+	@if [ -f gateway/go.mod ]; then cd gateway && go test -tags=integration ./...; else $(call pending,1.2,integration tests); fi
+
+up: ## Start the local stack
+	@if [ -f deploy/docker-compose.yml ]; then $(COMPOSE) up -d; else $(call pending,0.6,local stack); fi
+
+down: ## Stop the local stack and drop volumes
+	@if [ -f deploy/docker-compose.yml ]; then $(COMPOSE) down -v; else $(call pending,0.6,local stack); fi
+
+smoke: ## End-to-end: health, sync, stream, job
+	@if [ -x scripts/smoke.sh ]; then ./scripts/smoke.sh; else $(call pending,0.6,smoke script); fi
+
+bench: ## Worker RTF/TTFA on this machine
+	@if [ -f scripts/bench.py ]; then uv run scripts/bench.py; else $(call pending,0.5,bench script); fi
+
+loadtest: ## k6 scenarios against the local stack
+	@if [ -d scripts/k6 ]; then k6 run scripts/k6/steady.js; else $(call pending,3.2,k6 scenarios); fi
