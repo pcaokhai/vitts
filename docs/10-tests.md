@@ -40,9 +40,15 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-18 | US-17 | Key revoke immediate | revoke → next call 401 | `http/keys_test.go` | int | proposed M2 | yes |
 | T-19 | FL-07 | Scheduled jobs single-run | two replicas → lock → one execution | `sched/lock_test.go` | int | proposed M3 | yes |
 | T-20 | NFR-12 | Restore drill | restore dump into fresh DB → migrations idempotent | `13-runbook.md` procedure | manual | gap | — |
+| T-21 | US-02 | Health before weights | `ready=false`, `model_version` = pinned revision, answers over gRPC while loading | `worker/tests/test_server.py` | unit | done (0.3) | yes |
+| T-22 | US-02 | Health state is real | `slots_busy` follows the single slot; `rtf_ewma` folds every request | `worker/tests/test_health.py` | unit | done (0.3) | yes |
+| T-23 | US-02 | Engine loads pinned weights | load → `ready=true`, shipped voices listed, RTF < 1.0 on CPU | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.3) | no |
+| T-24 | NFR-06 | Worker config validation | missing revision / partial `VITTS_S3_*` → exit non-zero with a named variable | `worker/tests/test_config.py` | unit | done (0.3) | yes |
 
 ## Gaps (ranked)
 
 1. T-20 backup restore is manual; automate quarterly.
 2. Audio quality regression (WER via PhoWhisper) has no harness; proposed for M4 using upstream `eval` extra on a fixed 50-sentence corpus.
-3. WebSocket cancel semantics (US-10) share T-07 logic but need their own integration test in M1.
+3. T-23 is excluded from CI (it downloads ~200 MB of weights); run it in the nightly
+   job that lands with 0.5 bench.
+4. WebSocket cancel semantics (US-10) share T-07 logic but need their own integration test in M1.

@@ -1,0 +1,1 @@
+"""ViTTS inference worker."""

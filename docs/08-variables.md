@@ -31,6 +31,7 @@ No secret is ever bundled into a client, image layer, or log line.
 | `VITTS_GRPC_ADDR` | server | server | env | low |
 | `VITTS_MODEL_REPO` (`zeroweight-ai/ZeroTTS`) / `VITTS_MODEL_REVISION` (commit hash) | engine | server | env | medium (pin!) |
 | `VITTS_MODEL_MIRROR_S3` | engine | server | env | low |
+| `VITTS_MODEL_DIR` (`~/.cache/vitts/model`) | engine | server | env (volume) | low |
 | `HF_HOME` | engine | server | env (volume) | low |
 | `ORT_INTRA_OP_THREADS` | engine | server | env | low |
 | `VITTS_S3_*` | encode/merge | server | secret store | high |
@@ -40,7 +41,7 @@ No secret is ever bundled into a client, image layer, or log line.
 
 - [ ] Secrets injected from the secret store, not `.env` files, in prod compose/k8s.
 - [ ] `VITTS_ADMIN_KEY` ≥ 32 random bytes; allowlist set.
-- [ ] `VITTS_MODEL_REVISION` is a commit hash, not `main`.
+- [x] `VITTS_MODEL_REVISION` is a commit hash, not `main` (`c2bfbd6…`, set in `.env.example`).
 - [ ] Postgres and Redis not reachable from the internet; TLS on Postgres.
 - [ ] S3 bucket private; IAM user limited to the bucket prefix.
 - [ ] Logs verified free of `Authorization` headers and request text (grep in staging).

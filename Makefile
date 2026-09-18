@@ -4,7 +4,7 @@
 # exists the real command runs and its failure fails the target.
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
-.PHONY: help setup generate lint test test-integration up down smoke bench loadtest
+.PHONY: help setup generate lint test test-model test-integration up down smoke bench loadtest
 
 COMPOSE := docker compose -f deploy/docker-compose.yml
 
@@ -30,6 +30,9 @@ lint: ## golangci-lint, ruff, mypy, buf lint
 test: ## Unit tests, both languages
 	@if [ -f gateway/go.mod ]; then cd gateway && go test ./...; else $(call pending,1.1,go test); fi
 	@if [ -f worker/pyproject.toml ]; then cd worker && uv run pytest; else $(call pending,0.3,pytest); fi
+
+test-model: ## Worker tests that load the real ZeroTTS weights (~200 MB download)
+	@if [ -f worker/pyproject.toml ]; then cd worker && uv run pytest -m model; else $(call pending,0.3,model tests); fi
 
 test-integration: ## Testcontainers (Postgres, Redis, MinIO) + fake worker
 	@if [ -f gateway/go.mod ]; then cd gateway && go test -tags=integration ./...; else $(call pending,1.2,integration tests); fi
