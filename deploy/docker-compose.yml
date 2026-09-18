@@ -2,6 +2,30 @@
 name: vitts
 
 services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: gateway/Dockerfile
+    environment:
+      VITTS_ENV: ${VITTS_ENV:-dev}
+      VITTS_HTTP_ADDR: ":8080"
+      VITTS_LOG_LEVEL: ${VITTS_LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      # Liveness only. /readyz gains Postgres, Redis and the worker pool in 1.2/1.4/1.6,
+      # and the image has no shell, so the binary's own endpoint is probed over TCP.
+      test: ["CMD", "/gateway", "-healthcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   worker:
     build:
       context: ..

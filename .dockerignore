@@ -5,7 +5,7 @@
 **/.ruff_cache/
 .git/
 docs/
-gateway/
 deploy/
 scripts/
 worker/tests/
+gateway/bin/

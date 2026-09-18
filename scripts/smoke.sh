@@ -21,8 +21,22 @@ step "worker Synthesize (streaming)"
 ( cd worker && WORKER_ADDR="$WORKER_ADDR" uv run python ../scripts/smoke_synthesize.py ) \
   || fail "streaming synthesis did not produce audio"
 
-step "gateway"
-echo "  ..  /healthz, sync, stream and job legs land in tasks 1.1, 1.9, 1.10 and 2.3"
+step "gateway liveness and readiness"
+GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:8080}"
+curl -fsS "$GATEWAY_URL/healthz" >/dev/null || fail "gateway /healthz did not answer"
+echo "  /healthz ok"
+curl -fsS "$GATEWAY_URL/readyz" | tee /dev/stderr | grep -q '"ready":true' \
+  || fail "gateway /readyz reports not ready"
+
+step "gateway error contract"
+code=$(curl -s -o /dev/null -w '%{http_code}' "$GATEWAY_URL/v1/nope")
+[ "$code" = "404" ] || fail "unknown route returned $code, expected 404"
+curl -s -D- -o /dev/null "$GATEWAY_URL/v1/nope" | grep -qi 'content-type: application/problem+json' \
+  || fail "errors are not problem+json"
+echo "  unknown route -> 404 problem+json"
+
+step "gateway synthesize"
+echo "  ..  sync, stream and job legs land in tasks 1.9, 1.10 and 2.3"
 
 echo
 echo "SMOKE OK"

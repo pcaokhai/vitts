@@ -43,7 +43,10 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-21 | US-02 | Health before weights | `ready=false`, `model_version` = pinned revision, answers over gRPC while loading | `worker/tests/test_server.py` | unit | done (0.3) | yes |
 | T-22 | US-02 | Health state is real | `slots_busy` follows the single slot; `rtf_ewma` folds every request | `worker/tests/test_health.py` | unit | done (0.3) | yes |
 | T-23 | US-02 | Engine loads pinned weights | load → `ready=true`, shipped voices listed, RTF < 1.0 on CPU | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.3) | no |
-| T-26 | US-02 | Stack smoke | `make up` → worker healthy; one streamed synthesis, frames ordered, `last=true` present | `scripts/smoke.sh` | e2e | done (0.6) | no |
+| T-27 | NFR-06 | Problem mapping | every `Problem.code` maps to its status; an unmapped error becomes `internal` with no detail | `internal/http/problem_test.go` | unit | done (1.1) | yes |
+| T-28 | FL-06 | Readiness registry | no checks → ready; a failing check → 503 naming it, probe error not leaked | `internal/http/router_test.go` | unit | done (1.1) | yes |
+| T-29 | NFR-07 | Request id is safe | caller id echoed, sanitised and length-capped; credentials never reach the access log | `internal/http/router_test.go` | unit | done (1.1) | yes |
+| T-26 | US-02 | Stack smoke | `make up` → worker healthy; one streamed synthesis, frames ordered, `last=true` present | `scripts/smoke.sh` | e2e | done (0.6, gateway leg 1.1) | no |
 | T-25 | US-01 | First frame latency | TTFA ≤ 150 ms for a 21-char input on the bench machine | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.4) | no |
 | T-24 | NFR-06 | Worker config validation | missing revision / partial `VITTS_S3_*` → exit non-zero with a named variable | `worker/tests/test_config.py` | unit | done (0.3) | yes |
 

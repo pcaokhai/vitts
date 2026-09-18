@@ -5,6 +5,7 @@ linters:
   enable:
     - bodyclose
     - contextcheck
+    - depguard
     - errcheck
     - errorlint
     - gocritic
@@ -13,5 +14,33 @@ linters:
     - revive
     - sqlclosecheck
     - staticcheck
+  settings:
+    depguard:
+      rules:
+        # Layering (.claude/rules/gateway-go.md): use cases talk to ports, never to a
+        # transport or a driver. Written before the packages exist, because this cannot
+        # be retrofitted cheaply once code is in them.
+        use-cases:
+          files:
+            - "**/internal/synth/**"
+            - "**/internal/jobs/**"
+            - "**/internal/usage/**"
+            - "**/internal/voices/**"
+            - "**/internal/quota/**"
+          deny:
+            - pkg: net/http
+              desc: use cases must not know about HTTP; adapt in internal/http
+            - pkg: database/sql
+              desc: use cases must not know about SQL; go through a port in internal/storage
+            - pkg: github.com/jackc/pgx
+              desc: use cases must not know about Postgres; go through a port
+            - pkg: github.com/redis/go-redis
+              desc: use cases must not know about Redis; go through a port
+            - pkg: github.com/go-chi/chi
+              desc: routing belongs to internal/http
   exclusions:
     generated: strict # internal/gen is produced by `make generate`
+    rules:
+      - path: _test\.go$
+        linters:
+          - gosec
