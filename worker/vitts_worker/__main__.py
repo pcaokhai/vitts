@@ -30,7 +30,7 @@ async def main() -> int:
         return 2
 
     engine = Engine(cfg)
-    server, _port = await serve(engine, cfg.grpc_addr)
+    server, _port = await serve(engine, cfg, cfg.grpc_addr)
 
     # Loading blocks on ONNX session creation and a warm-up utterance; keep it off the
     # event loop so Health stays answerable throughout.

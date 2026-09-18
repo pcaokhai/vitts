@@ -21,6 +21,7 @@ dev = [
     "boto3-stubs[s3]>=1.35",
     "types-protobuf>=5.28",
     "types-grpcio>=1.0",
+    "scipy-stubs>=1.14",
 ]
 
 [build-system]

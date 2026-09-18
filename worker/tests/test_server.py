@@ -19,8 +19,9 @@ REVISION = "c2bfbd67dc648cac455077333f7cf5c18a2e3bb4"
 @pytest_asyncio.fixture
 async def stub() -> AsyncIterator[worker_pb2_grpc.WorkerStub]:
     """A stub talking to a real server over loopback, with no model loaded."""
-    engine = Engine(Config.from_env({"VITTS_MODEL_REVISION": REVISION}))
-    server, port = await serve(engine, "127.0.0.1:0")
+    cfg = Config.from_env({"VITTS_MODEL_REVISION": REVISION})
+    engine = Engine(cfg)
+    server, port = await serve(engine, cfg, "127.0.0.1:0")
     channel = grpc.aio.insecure_channel(f"127.0.0.1:{port}")
     try:
         yield worker_pb2_grpc.WorkerStub(channel)

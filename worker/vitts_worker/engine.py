@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -16,11 +17,25 @@ import structlog
 from . import mirror
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    import numpy as np
+
     from .config import Config
 
 log = structlog.get_logger(__name__)
 
 RTF_EWMA_ALPHA = 0.2
+
+# Characters of Vietnamese per second of audio. Used only to meter a request the caller
+# cancelled mid-stream: upstream exposes no text position, so a cancelled request is
+# billed from the audio it actually produced. A completed request is always billed the
+# exact character count, so this never affects a normal invoice.
+#
+# Measured in task 0.4 over 4 voices x 3 lengths: 14.6 - 25.8 chars/s, mean 18.2. The
+# floor of that range is deliberate: an estimate that is too low under-bills the tenant,
+# one that is too high charges them for audio they cancelled and never received.
+CHARS_PER_AUDIO_SECOND = 14.5
 
 # Everything inference needs and nothing else: the repo also ships ~500 MB of demo
 # audio and a banner that would otherwise land in every image and every mirror.
@@ -37,6 +52,18 @@ MODEL_FILE_PATTERNS = (
 
 class EngineNotReadyError(RuntimeError):
     """Raised when inference is attempted before load() has succeeded."""
+
+
+@dataclass(frozen=True, slots=True)
+class SynthesisParams:
+    """Proto `SynthesisParams` with the contract's documented defaults applied."""
+
+    cfg_scale: float = 1.0
+    audio_temperature: float = 0.8
+    audio_topk: int = 25
+    audio_topp: float = 0.95
+    audio_repetition_penalty: float = 1.2
+    eoa_extra_frames: int = 1
 
 
 class Engine:
@@ -164,6 +191,38 @@ class Engine:
         if self._tts is None:
             raise EngineNotReadyError("model is not loaded")
         return self._tts
+
+    def stream(
+        self,
+        text: str,
+        voice_id: str,
+        params: SynthesisParams,
+        cancel: threading.Event,
+    ) -> Generator[np.ndarray, None, None]:
+        """Yield float32 frames at the native rate until exhausted or cancelled.
+
+        Cancellation is cooperative and checked between frames, which is the only safe
+        point: upstream has no interrupt and a frame is the smallest unit it produces.
+        Closing the generator releases the ONNX session state.
+        """
+        frames = self.tts.synthesize_stream(
+            text,
+            voice=voice_id,
+            cfg_scale=params.cfg_scale,
+            audio_temperature=params.audio_temperature,
+            audio_topk=params.audio_topk,
+            audio_topp=params.audio_topp,
+            audio_repetition_penalty=params.audio_repetition_penalty,
+            eoa_extra_frames=params.eoa_extra_frames,
+        )
+        try:
+            for chunk in frames:
+                if cancel.is_set():
+                    log.info("synthesize.cancelled")
+                    return
+                yield chunk
+        finally:
+            frames.close()
 
     def acquire_slot(self, timeout: float) -> bool:
         """Take the single inference slot. Callers must release it in a finally block."""

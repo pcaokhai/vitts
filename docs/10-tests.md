@@ -20,8 +20,8 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 
 | ID | Use case | Rule | Expected (incl. deny) | Evidence | Type | Status | CI |
 |----|----------|------|-----------------------|----------|------|--------|----|
-| T-01 | US-01 | Frames ordered, last flag | seq 0..n, last=true once; gap → error | `worker/tests/test_stream.py` | unit | proposed M0 | yes |
-| T-02 | US-01 | Cancel stops inference | cancel → engine stop ≤ 200 ms | `worker/tests/test_cancel.py` | unit | proposed M0 | yes |
+| T-01 | US-01 | Frames ordered, last flag | seq 0..n, last=true once; rate/duration ±1%; invalid input → INVALID_ARGUMENT; busy → RESOURCE_EXHAUSTED | `worker/tests/test_stream.py` | unit | done (0.4) | yes |
+| T-02 | US-01 | Cancel stops inference | cancel → generator closed, slot free ≤ 200 ms | `worker/tests/test_cancel.py` | unit + `-m model` | done (0.4) | yes |
 | T-03 | US-05 | Auth | valid/revoked/suspended/no-scope → 200/401/401/403 | `gateway/internal/auth/*_test.go`, `http/auth_integration_test.go` | unit+int | proposed M1 | yes |
 | T-04 | US-08 | Validation | >3000 chars → 413; unknown voice → 422; bad JSON → 400 problem+json | `http/synth_test.go` | int | proposed M1 | yes |
 | T-05 | US-06 | Limiter atomic | 100 concurrent → exactly `limit` succeed | `ratelimit/lua_test.go` (miniredis) | unit | proposed M1 | yes |
@@ -43,6 +43,7 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-21 | US-02 | Health before weights | `ready=false`, `model_version` = pinned revision, answers over gRPC while loading | `worker/tests/test_server.py` | unit | done (0.3) | yes |
 | T-22 | US-02 | Health state is real | `slots_busy` follows the single slot; `rtf_ewma` folds every request | `worker/tests/test_health.py` | unit | done (0.3) | yes |
 | T-23 | US-02 | Engine loads pinned weights | load → `ready=true`, shipped voices listed, RTF < 1.0 on CPU | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.3) | no |
+| T-25 | US-01 | First frame latency | TTFA ≤ 150 ms for a 21-char input on the bench machine | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.4) | no |
 | T-24 | NFR-06 | Worker config validation | missing revision / partial `VITTS_S3_*` → exit non-zero with a named variable | `worker/tests/test_config.py` | unit | done (0.3) | yes |
 
 ## Gaps (ranked)
