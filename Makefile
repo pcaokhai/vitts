@@ -19,7 +19,7 @@ setup: ## Install the toolchain (go, uv, buf, oapi-codegen, sqlc, golangci-lint,
 	@if [ -x scripts/setup.sh ]; then ./scripts/setup.sh; else $(call pending,0.2,toolchain bootstrap); fi
 
 generate: ## Regenerate proto, OpenAPI and sqlc code (CI fails on diff)
-	@if [ -f proto/buf.gen.yaml ]; then buf generate proto; else $(call pending,0.2,proto stubs); fi
+	@if [ -f proto/buf.gen.yaml ]; then cd proto && buf generate && ../scripts/postgen.sh; else $(call pending,0.2,proto stubs); fi
 	@if [ -f gateway/Makefile ]; then $(MAKE) -C gateway generate; else $(call pending,1.14,openapi + sqlc); fi
 
 lint: ## golangci-lint, ruff, mypy, buf lint

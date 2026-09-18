@@ -1,0 +1,17 @@
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+  except:
+    # The contract file lives at proto/worker.proto by ADR-009 and
+    # docs/02-architecture.md § 2; it is not mirrored into vitts/worker/v1/.
+    - PACKAGE_DIRECTORY_MATCH
+    # Service and stream message names are fixed by the contract in
+    # docs/api/; renaming them would be a breaking change with no caller.
+    - SERVICE_SUFFIX
+    - RPC_RESPONSE_STANDARD_NAME
+breaking:
+  use:
+    - FILE

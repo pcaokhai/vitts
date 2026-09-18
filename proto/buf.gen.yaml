@@ -1,0 +1,14 @@
+version: v2
+managed:
+  enabled: false # go_package is declared in worker.proto and is the source of truth
+plugins:
+  - remote: buf.build/protocolbuffers/go:v1.35.2
+    out: ../gateway/internal/gen/workerpb
+    opt: paths=source_relative
+  - remote: buf.build/grpc/go:v1.5.1
+    out: ../gateway/internal/gen/workerpb
+    opt: paths=source_relative
+  - remote: buf.build/protocolbuffers/python:v28.3
+    out: ../worker/vitts_worker/gen
+  - remote: buf.build/grpc/python:v1.67.1
+    out: ../worker/vitts_worker/gen

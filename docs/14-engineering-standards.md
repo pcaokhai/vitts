@@ -21,7 +21,7 @@ agent; this file is the authority.
 
 ## Go
 
-- Go 1.23, modules, `golangci-lint` with `errcheck, govet, staticcheck, gosec, revive,
+- Go 1.25, modules, `golangci-lint` with `errcheck, govet, staticcheck, gosec, revive,
   gocritic, errorlint, contextcheck, bodyclose, sqlclosecheck`.
 - Package layout `internal/<domain>`; exported surface minimal; no `util`/`common`.
 - Constructor injection; no globals; `context.Context` first param.

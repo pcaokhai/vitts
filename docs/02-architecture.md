@@ -68,7 +68,7 @@ vitts/
 
 | Container | Tech | Responsibility | Scaling |
 |-----------|------|----------------|---------|
-| API gateway | Go 1.23, chi, grpc-go | Auth, limits, cache, dispatch, jobs, metering, admin | Horizontal, stateless, 2+ replicas behind LB |
+| API gateway | Go 1.25, chi, grpc-go | Auth, limits, cache, dispatch, jobs, metering, admin | Horizontal, stateless, 2+ replicas behind LB |
 | Worker | Python 3.12, onnxruntime, grpcio | Preprocess, inference, encode | Horizontal; one container = N processes; scale on queue depth |
 | Redis 7 | | Rate limit, concurrency, quota counters, cache index, job stream, auth cache | Single node + persistence for MVP; Sentinel later |
 | PostgreSQL 16 | | Tenants, keys, plans, voices, requests, jobs, usage | Single primary + daily backup; read replica later |

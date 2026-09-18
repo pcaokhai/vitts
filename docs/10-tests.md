@@ -36,7 +36,7 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-14 | US-09 | TTFA SLO | k6 80% util → p95 ≤ 300 ms | `scripts/loadtest/steady.js` | load | proposed M3 | release |
 | T-15 | US-14 | Idempotency | same key+body → same job; different body → 409 | `jobs/idempotency_test.go` | int | proposed M2 | yes |
 | T-16 | US-04 | Merge duration | sum + gaps ± 50 ms | `worker/tests/test_merge.py` | unit | proposed M2 | yes |
-| T-17 | ADR-009 | Contract drift | regenerate → no diff | `make generate && git diff --exit-code` | contract | proposed M0 | yes |
+| T-17 | ADR-009 | Contract drift | regenerate → no diff | `make generate && git diff --exit-code` | contract | done (0.2) | yes |
 | T-18 | US-17 | Key revoke immediate | revoke → next call 401 | `http/keys_test.go` | int | proposed M2 | yes |
 | T-19 | FL-07 | Scheduled jobs single-run | two replicas → lock → one execution | `sched/lock_test.go` | int | proposed M3 | yes |
 | T-20 | NFR-12 | Restore drill | restore dump into fresh DB → migrations idempotent | `13-runbook.md` procedure | manual | gap | — |
