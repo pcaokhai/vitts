@@ -35,6 +35,11 @@ services:
       VITTS_DATABASE_URL: postgres://vitts:vitts@postgres:5432/vitts?sslmode=disable
       VITTS_WORKER_ADDRS: ${VITTS_WORKER_ADDRS:-worker:50051}
       VITTS_REDIS_URL: redis://redis:6379/0
+      VITTS_S3_ENDPOINT: http://minio:9000
+      VITTS_S3_REGION: ${VITTS_S3_REGION:-us-east-1}
+      VITTS_S3_BUCKET: ${VITTS_S3_BUCKET:-vitts}
+      VITTS_S3_ACCESS_KEY: ${VITTS_S3_ACCESS_KEY:-vitts-dev}
+      VITTS_S3_SECRET_KEY: ${VITTS_S3_SECRET_KEY:-vitts-dev-secret}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     ports:
       - "${VITTS_GATEWAY_PORT:-8080}:8080"
@@ -53,6 +58,8 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
 
   worker:
     build:

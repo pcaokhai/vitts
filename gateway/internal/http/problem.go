@@ -5,7 +5,10 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/rs/zerolog"
 )
@@ -54,6 +57,9 @@ type Error struct {
 	Status int
 	Title  string
 	Detail string
+	// RetryAfter, when set, is emitted as the Retry-After header. Overload and rate
+	// limiting both owe the caller a hint about when to come back (ADR-007, US-06).
+	RetryAfter time.Duration
 	// Cause is logged, never serialised: it may embed internal detail.
 	Cause error
 }
@@ -82,6 +88,11 @@ func WriteProblem(w http.ResponseWriter, r *http.Request, err error) {
 	problem := toProblem(r, err)
 
 	logProblem(r, problem, err)
+
+	var mapped *Error
+	if errors.As(err, &mapped) && mapped.RetryAfter > 0 {
+		w.Header().Set(HeaderRetryAfter, retryAfterSeconds(mapped.RetryAfter))
+	}
 
 	w.Header().Set("Content-Type", ContentTypeProblem)
 	w.WriteHeader(problem.Status)
@@ -134,9 +145,13 @@ func statusFor(code Code) (int, string) {
 	case CodeInvalidRequest:
 		return http.StatusBadRequest, "Invalid request"
 	case CodeTextTooLong:
-		return http.StatusBadRequest, "Text too long"
+		// 413, not 400: the request is well formed, it is the payload that is too big
+		// (US-08 acceptance criterion 3).
+		return http.StatusRequestEntityTooLarge, "Text too long"
 	case CodeUnknownVoice:
-		return http.StatusBadRequest, "Unknown voice"
+		// 422: the body parses and is syntactically valid, but names a voice that does
+		// not exist (US-08 acceptance criterion 3).
+		return http.StatusUnprocessableEntity, "Unknown voice"
 	case CodeUnauthorized:
 		return http.StatusUnauthorized, "Unauthorized"
 	case CodeForbiddenScope:
@@ -160,4 +175,14 @@ func statusFor(code Code) (int, string) {
 	default:
 		return http.StatusInternalServerError, "Internal error"
 	}
+}
+
+// retryAfterSeconds renders whole seconds, never 0: a Retry-After of 0 invites an
+// immediate retry into the same refusal.
+func retryAfterSeconds(d time.Duration) string {
+	seconds := int(math.Ceil(d.Seconds()))
+	if seconds < 1 {
+		seconds = 1
+	}
+	return strconv.Itoa(seconds)
 }

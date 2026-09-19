@@ -26,11 +26,11 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-35 | US-05 | Tenant creation is atomic | tenant, first key and audit row all commit or none do; secret returned once | `http/auth_integration_test.go` | int | done (1.3) | yes |
 | T-36 | NFR-07 | Admin needs key and network | wrong key, wrong network, or spoofed `X-Forwarded-For` → 401; empty allowlist denies all | `http/auth_test.go` | unit | done (1.3) | yes |
 | T-37 | NFR-07 | Admin config fails closed | short `VITTS_ADMIN_KEY` or empty allowlist → process does not boot | `internal/config/config_test.go` | unit | done (1.3) | yes |
-| T-04 | US-08 | Validation | >3000 chars → 413; unknown voice → 422; bad JSON → 400 problem+json | `http/synth_test.go` | int | proposed M1 | yes |
+| T-04 | US-08 | Validation | >3000 chars → 413; unknown voice → 422; bad JSON → 400 problem+json | `internal/synth/synth_test.go`, verified against the live stack | unit | done (1.9) | yes |
 | T-05 | US-06 | Limiter atomic | 100 concurrent → exactly `limit` succeed; leases likewise | `ratelimit/lua_test.go` (miniredis) | unit | proposed M1 | yes |
 | T-06 | US-07 | Quota | at limit×1.05 → 402; reconcile fixes drift both ways and seeds a flushed Redis | `quota/*_test.go` | int | proposed M1 | yes |
 | T-07 | US-09 | Disconnect cancels worker | close client conn → fake worker sees ctx cancel ≤ 200 ms; lease released | `synth/stream_cancel_test.go` | int | proposed M1 | yes |
-| T-08 | US-11 | Cache hit bypasses worker | 2nd identical request → HIT, fake worker call count unchanged; billed | `cache/*_test.go`, `synth/cache_hit_test.go` | int | proposed M1 | yes |
+| T-08 | US-11 | Cache hit bypasses worker | 2nd identical request → HIT, byte-identical, and the fake worker call count unchanged; billed | `cache/*_test.go`, `synth/cache_hit_test.go` | int | proposed M1 | yes |
 | T-09 | US-14 | Job resume | kill orchestrator mid-job → restart → done segments not re-run | `jobs/resume_test.go` | int | proposed M2 | yes |
 | T-10 | US-15 | SSRF guard | `http://`, `127.0.0.1`, `10.x`, `169.254.x`, DNS→private → 422 | `jobs/webhook_guard_test.go` | unit | proposed M2 | yes |
 | T-11 | NFR-07 | No secrets/text in logs | run suite with log capture; grep for key secret and sample text → none | `telemetry/redaction_test.go` | int | proposed M1 | yes |
@@ -69,6 +69,10 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-50 | US-11 | Cache key canonicalisation | 0.80=0.8, whitespace variants hit; model/voice/case/punctuation/rate miss | `internal/cache/key_test.go` | unit | done (1.8) | yes |
 | T-51 | US-11 | Cache manager ordering | store writes the object before indexing; a vanished object degrades to a miss and drops the stale entry | `internal/cache/cache_test.go` | unit | done (1.8) | yes |
 | T-52 | US-05 | /v1 guard chain | registered route → 401 without a key, 403 without the scope, 429 with Retry-After when throttled | `internal/http/ratelimit_test.go` | unit | done (1.4) | yes |
+| T-53 | US-08 | WAV container | header is RIFF/WAVE PCM16 mono at the requested rate; duration matches byte count | `internal/audio`, `internal/synth/service_test.go` | unit | done (1.9) | yes |
+| T-54 | US-08 | Contract bounds | 3000 characters (not bytes) fit; 3001 → 413; unknown format/rate → 400; mp3 refused naming task 2.2 | `internal/synth/synth_test.go` | unit | done (1.9) | yes |
+| T-55 | US-08 | Refusals cost nothing | quota exceeded and unknown voice never reach a worker and never bill | `internal/synth/service_test.go` | unit | done (1.9) | yes |
+| T-56 | US-13 | Catalogue follows the fleet | voices are upserted from ready workers; listing is sorted and tenant-scoped | `internal/voices`, live stack | unit | done (1.13) | yes |
 | T-26 | US-02 | Stack smoke | `make up` → worker healthy; one streamed synthesis, frames ordered, `last=true` present | `scripts/smoke.sh` | e2e | done (0.6, gateway leg 1.1) | no |
 | T-25 | US-01 | First frame latency | TTFA ≤ 150 ms for a 21-char input on the bench machine | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.4) | no |
 | T-24 | NFR-06 | Worker config validation | missing revision / partial `VITTS_S3_*` → exit non-zero with a named variable | `worker/tests/test_config.py` | unit | done (0.3) | yes |

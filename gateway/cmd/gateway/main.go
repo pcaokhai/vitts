@@ -19,8 +19,10 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver, used by the migrations job
 	"github.com/pressly/goose/v3"
+	"github.com/rs/zerolog"
 
 	"github.com/pcaokhai/vitts/gateway/internal/auth"
+	"github.com/pcaokhai/vitts/gateway/internal/cache"
 	"github.com/pcaokhai/vitts/gateway/internal/config"
 	"github.com/pcaokhai/vitts/gateway/internal/dispatch"
 	gatewayhttp "github.com/pcaokhai/vitts/gateway/internal/http"
@@ -29,8 +31,11 @@ import (
 	"github.com/pcaokhai/vitts/gateway/internal/ratelimit"
 	"github.com/pcaokhai/vitts/gateway/internal/storage/postgres"
 	redisadapter "github.com/pcaokhai/vitts/gateway/internal/storage/redis"
+	"github.com/pcaokhai/vitts/gateway/internal/storage/s3"
+	"github.com/pcaokhai/vitts/gateway/internal/synth"
 	"github.com/pcaokhai/vitts/gateway/internal/telemetry"
 	"github.com/pcaokhai/vitts/gateway/internal/tenants"
+	"github.com/pcaokhai/vitts/gateway/internal/voices"
 	"github.com/pcaokhai/vitts/gateway/migrations"
 )
 
@@ -106,22 +111,22 @@ func run() error {
 	}
 	defer pool.Close()
 
-	cache, err := redisadapter.Open(ctx, cfg.RedisURL, cfg.RedisPoolSize)
+	cacheClient, err := redisadapter.Open(ctx, cfg.RedisURL, cfg.RedisPoolSize)
 	if err != nil {
 		return fmt.Errorf("redis: %w", err)
 	}
 	defer func() {
-		if err := cache.Close(); err != nil {
+		if err := cacheClient.Close(); err != nil {
 			logger.Error().Err(err).Msg("redis shutdown incomplete")
 		}
 	}()
 
-	limiter, err := ratelimit.New(ctx, cache.Raw())
+	limiter, err := ratelimit.New(ctx, cacheClient.Raw())
 	if err != nil {
 		return fmt.Errorf("rate limiter: %w", err)
 	}
 
-	quotas := quota.New(redisadapter.NewCounter(cache))
+	quotas := quota.New(redisadapter.NewCounter(cacheClient))
 	// Reconcile runs for the life of the process; ctx is cancelled on shutdown.
 	go quota.NewReconciler(quotas, postgres.NewUsageRepository(pool), logger).Run(ctx)
 
@@ -136,9 +141,30 @@ func run() error {
 	}()
 	workers.Start(ctx)
 
+	catalogue := voices.NewService(postgres.NewVoiceRepository(pool), workers)
+	planLimits := postgres.NewPlanLimits(pool)
+	cacheManager := cache.NewManager(
+		redisadapter.NewCacheIndex(cacheClient),
+		s3.Open(cfg.S3),
+		postgres.NewCacheCatalogue(pool),
+	)
+	synthesizer := synth.NewService(
+		synth.NewQuotaAdapter(quotas),
+		cacheManager,
+		dispatch.NewDispatcher(workers),
+		catalogue,
+		planLimits,
+		synth.NopMeter{},
+		logger,
+	)
+
+	// The catalogue follows the fleet: a deploy that changes the model's voices must
+	// show up without a migration (US-13).
+	go syncVoices(ctx, catalogue, logger)
+
 	readiness := gatewayhttp.NewReadiness()
 	readiness.Register("postgres", pool.Ready)
-	readiness.Register("redis", cache.Ready)
+	readiness.Register("redis", cacheClient.Ready)
 	readiness.Register("workers", workers.Ready)
 
 	server := &stdhttp.Server{
@@ -150,7 +176,17 @@ func run() error {
 			Tenants:   tenants.NewService(postgres.NewTenantRepository(pool)),
 			Auth:      auth.NewAuthenticator(postgres.NewAuthRepository(pool)),
 			Limiter:   limiter,
-			Plans:     postgres.NewPlanLimits(pool),
+			Plans:     planLimits,
+			TenantAPI: []gatewayhttp.Route{
+				{
+					Method: stdhttp.MethodPost, Pattern: "/synthesize",
+					Scope: auth.ScopeSynth, Handler: gatewayhttp.Synthesize(synthesizer),
+				},
+				{
+					Method: stdhttp.MethodGet, Pattern: "/voices",
+					Scope: auth.ScopeSynth, Handler: gatewayhttp.ListVoices(catalogue),
+				},
+			},
 		}),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
@@ -306,4 +342,25 @@ func runSeedPlans(path string) error {
 
 	fmt.Printf("upserted %d plans from %s\n", len(tiers), path)
 	return nil
+}
+
+// voiceSyncInterval is how often the catalogue is refreshed from the fleet. Voices change
+// at deploy time, so this only has to be faster than an operator noticing.
+const voiceSyncInterval = time.Minute
+
+// syncVoices keeps the catalogue in step with what the workers advertise.
+func syncVoices(ctx context.Context, catalogue *voices.Service, logger zerolog.Logger) {
+	ticker := time.NewTicker(voiceSyncInterval)
+	defer ticker.Stop()
+
+	for {
+		if err := catalogue.Sync(ctx); err != nil && ctx.Err() == nil {
+			logger.Error().Err(err).Msg("voice catalogue sync failed")
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }

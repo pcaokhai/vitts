@@ -201,6 +201,35 @@ func (p *Pool) Snapshots() []Snapshot {
 	return out
 }
 
+// AdvertisedVoices reports every voice a ready worker can produce, mapped to the model
+// version producing it. Implements voices.Fleet.
+//
+// A voice is listed as soon as one ready worker has it: during a rolling deploy the
+// fleet is briefly mixed, and the cache key includes the model version, so a mixed fleet
+// is safe (FL-06).
+func (p *Pool) AdvertisedVoices() map[string]string {
+	advertised := make(map[string]string)
+	for _, snap := range p.Snapshots() {
+		if !snap.Ready || snap.Ejected {
+			continue
+		}
+		for _, id := range snap.VoiceIDs {
+			advertised[id] = snap.ModelVersion
+		}
+	}
+	return advertised
+}
+
+// ModelVersion returns the version a ready worker is serving, or "" when none is.
+func (p *Pool) ModelVersion() string {
+	for _, snap := range p.Snapshots() {
+		if snap.Ready && !snap.Ejected {
+			return snap.ModelVersion
+		}
+	}
+	return ""
+}
+
 // Ready is the /readyz check: at least one worker must be ready (FL-06).
 func (p *Pool) Ready(context.Context) error {
 	for _, snap := range p.Snapshots() {

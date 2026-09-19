@@ -24,6 +24,10 @@ type Querier interface {
 	GetTenant(ctx context.Context, id uuid.UUID) (GetTenantRow, error)
 	ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ApiKey, error)
 	ListPlans(ctx context.Context) ([]Plan, error)
+	// Voice catalogue. Public presets have tenant_id null; tenant-owned voices are visible
+	// only to their owner (docs/07-permissions.md, US-13 acceptance criterion 2).
+	ListPublicVoices(ctx context.Context) ([]Voice, error)
+	ListVoicesForTenant(ctx context.Context, tenantID *uuid.UUID) ([]Voice, error)
 	RevokeAPIKey(ctx context.Context, arg RevokeAPIKeyParams) (int64, error)
 	// Usage reads for quota reconciliation. synth_requests is the system of record; the
 	// usage_daily rollup arrives with migration 0002 (task 2.1) and can replace this scan
@@ -35,6 +39,7 @@ type Querier interface {
 	// flush and what the eviction job scans (FL-07, task 2.8).
 	UpsertCacheEntry(ctx context.Context, arg UpsertCacheEntryParams) error
 	UpsertPlan(ctx context.Context, arg UpsertPlanParams) error
+	UpsertVoice(ctx context.Context, arg UpsertVoiceParams) error
 }
 
 var _ Querier = (*Queries)(nil)

@@ -17,6 +17,7 @@ var baseEnv = map[string]string{
 	"VITTS_ADMIN_IP_ALLOWLIST": "127.0.0.1/32",
 	"VITTS_WORKER_ADDRS":       "worker:50051",
 	"VITTS_REDIS_URL":          "redis://localhost:6379/0",
+	"VITTS_S3_BUCKET":          "vitts",
 }
 
 func withBase(overrides map[string]string) map[string]string {
@@ -81,6 +82,10 @@ func TestLoadRejectsBadValues(t *testing.T) {
 		"missing redis url": {
 			vars:     withBase(map[string]string{"VITTS_REDIS_URL": ""}),
 			variable: "VITTS_REDIS_URL",
+		},
+		"missing s3 bucket": {
+			vars:     withBase(map[string]string{"VITTS_S3_BUCKET": ""}),
+			variable: "VITTS_S3_BUCKET",
 		},
 		"missing worker addresses": {
 			vars:     withBase(map[string]string{"VITTS_WORKER_ADDRS": ""}),

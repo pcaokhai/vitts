@@ -9,6 +9,8 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+
+	"github.com/pcaokhai/vitts/gateway/internal/storage/s3"
 	"strings"
 	"time"
 )
@@ -36,6 +38,7 @@ type Config struct {
 	WorkerAddrs      []string
 	RedisURL         string
 	RedisPoolSize    int
+	S3               s3.Config
 	ShutdownTimeout  time.Duration
 }
 
@@ -80,7 +83,14 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		WorkerAddrs:      splitList(value(lookup, "VITTS_WORKER_ADDRS", "")),
 		RedisURL:         value(lookup, "VITTS_REDIS_URL", ""),
 		RedisPoolSize:    defaultRedisPoolSize,
-		ShutdownTimeout:  defaultShutdownTimeout,
+		S3: s3.Config{
+			Endpoint:  value(lookup, "VITTS_S3_ENDPOINT", ""),
+			Region:    value(lookup, "VITTS_S3_REGION", "us-east-1"),
+			Bucket:    value(lookup, "VITTS_S3_BUCKET", ""),
+			AccessKey: value(lookup, "VITTS_S3_ACCESS_KEY", ""),
+			SecretKey: value(lookup, "VITTS_S3_SECRET_KEY", ""),
+		},
+		ShutdownTimeout: defaultShutdownTimeout,
 	}
 
 	allowlist, err := parsePrefixes(value(lookup, "VITTS_ADMIN_IP_ALLOWLIST", ""))
@@ -128,6 +138,12 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, &Error{
 			Variable: "VITTS_REDIS_URL",
 			Reason:   "is required; rate limits and quota are enforced from Redis",
+		}
+	}
+	if cfg.S3.Bucket == "" {
+		return Config{}, &Error{
+			Variable: "VITTS_S3_BUCKET",
+			Reason:   "is required; synthesized audio is cached in object storage",
 		}
 	}
 	if len(cfg.WorkerAddrs) == 0 {

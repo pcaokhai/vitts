@@ -20,12 +20,15 @@ import (
 type Server struct {
 	workerpb.UnimplementedWorkerServer
 
-	mu       sync.Mutex
-	health   *workerpb.HealthResponse
-	failing  bool
-	probes   int
-	grpcSrv  *grpc.Server
-	listener net.Listener
+	mu         sync.Mutex
+	health     *workerpb.HealthResponse
+	failing    bool
+	probes     int
+	syntheses  int
+	chunkCount int
+	chunkBytes int
+	grpcSrv    *grpc.Server
+	listener   net.Listener
 }
 
 // Start listens on a loopback port and serves until Stop.
@@ -70,6 +73,64 @@ func (s *Server) Probes() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.probes
+}
+
+// SetAudio sets what Synthesize streams back: chunkCount frames of chunkBytes each.
+func (s *Server) SetAudio(chunkCount, chunkBytes int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.chunkCount, s.chunkBytes = chunkCount, chunkBytes
+}
+
+// Syntheses counts Synthesize calls, which is how a test proves a cache hit touched no
+// worker (T-08).
+func (s *Server) Syntheses() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.syntheses
+}
+
+// Synthesize streams deterministic PCM so a test can assert on exact bytes.
+func (s *Server) Synthesize(req *workerpb.SynthesizeRequest, stream workerpb.Worker_SynthesizeServer) error {
+	s.mu.Lock()
+	s.syntheses++
+	count, size, failing := s.chunkCount, s.chunkBytes, s.failing
+	s.mu.Unlock()
+
+	if failing {
+		return status.Error(codes.Unavailable, "fake worker is failing")
+	}
+	if count == 0 {
+		count, size = 2, 480
+	}
+
+	rate := req.GetOutputSampleRate()
+	if rate == 0 {
+		rate = 48000
+	}
+
+	var seq uint32
+	//nolint:gosec // count is a small frame count set by the test that owns this server
+	for ; seq < uint32(count); seq++ {
+		frame := make([]byte, size)
+		for i := range frame {
+			frame[i] = byte(seq + 1)
+		}
+		if err := stream.Send(&workerpb.AudioFrame{
+			Seq: seq, Pcm16: frame, SampleRate: rate,
+		}); err != nil {
+			return fmt.Errorf("send frame: %w", err)
+		}
+	}
+
+	if err := stream.Send(&workerpb.AudioFrame{
+		Seq: seq, SampleRate: rate, Last: true,
+		//nolint:gosec // text length is bounded by the contract's 3,000 character limit
+		CharsConsumed: uint32(len([]rune(req.GetText()))),
+	}); err != nil {
+		return fmt.Errorf("send terminator: %w", err)
+	}
+	return nil
 }
 
 // Health implements the worker contract.

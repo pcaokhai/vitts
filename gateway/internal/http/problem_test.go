@@ -26,8 +26,8 @@ func TestWriteProblemStatusPerCode(t *testing.T) {
 
 	tests := map[gatewayhttp.Code]int{
 		gatewayhttp.CodeInvalidRequest:      http.StatusBadRequest,
-		gatewayhttp.CodeTextTooLong:         http.StatusBadRequest,
-		gatewayhttp.CodeUnknownVoice:        http.StatusBadRequest,
+		gatewayhttp.CodeTextTooLong:         http.StatusRequestEntityTooLarge,
+		gatewayhttp.CodeUnknownVoice:        http.StatusUnprocessableEntity,
 		gatewayhttp.CodeUnauthorized:        http.StatusUnauthorized,
 		gatewayhttp.CodeForbiddenScope:      http.StatusForbidden,
 		gatewayhttp.CodeJobNotFound:         http.StatusNotFound,
@@ -83,7 +83,7 @@ func TestWriteProblemUnwrapsWrappedError(t *testing.T) {
 	res := httptest.NewRecorder()
 	gatewayhttp.WriteProblem(res, httptest.NewRequest(http.MethodPost, "/v1/synthesize", nil), wrapped)
 
-	require.Equal(t, http.StatusBadRequest, res.Code)
+	require.Equal(t, http.StatusRequestEntityTooLarge, res.Code)
 	problem := decodeProblem(t, res)
 	require.Equal(t, gatewayhttp.CodeTextTooLong, problem.Code)
 	require.Equal(t, "3000 max", problem.Detail)

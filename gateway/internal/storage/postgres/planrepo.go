@@ -77,6 +77,15 @@ func NewPlanLimits(pool *Pool) *PlanLimits {
 	return &PlanLimits{pool: pool, ttl: PlanCacheTTL, cached: make(map[string]cachedPlan)}
 }
 
+// CharsPerMonth returns the plan's monthly allowance.
+func (p *PlanLimits) CharsPerMonth(ctx context.Context, planID string) (int64, error) {
+	plan, err := p.pool.Queries.GetPlan(ctx, planID)
+	if err != nil {
+		return 0, fmt.Errorf("get plan %q: %w", planID, err)
+	}
+	return plan.CharsPerMonth, nil
+}
+
 // ReqPerMinute returns the plan's request rate.
 func (p *PlanLimits) ReqPerMinute(ctx context.Context, planID string) (int32, error) {
 	p.mu.RLock()

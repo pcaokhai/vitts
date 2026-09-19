@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"math"
 	"net/http"
 	"strconv"
 
@@ -77,12 +76,7 @@ func writeRateHeaders(w http.ResponseWriter, decision ratelimit.RateDecision) {
 		return
 	}
 
-	// Retry-After is whole seconds (RFC 9110) and must never be 0, which would invite an
-	// immediate retry into the same refusal.
-	seconds := int(math.Ceil(decision.RetryAfter.Seconds()))
-	if seconds < 1 {
-		seconds = 1
-	}
-	w.Header().Set(HeaderRetryAfter, strconv.Itoa(seconds))
-	w.Header().Set(HeaderRateLimitResetSec, strconv.Itoa(seconds))
+	seconds := retryAfterSeconds(decision.RetryAfter)
+	w.Header().Set(HeaderRetryAfter, seconds)
+	w.Header().Set(HeaderRateLimitResetSec, seconds)
 }
