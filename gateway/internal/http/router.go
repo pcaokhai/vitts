@@ -52,6 +52,10 @@ func Router(deps Deps) http.Handler {
 
 	mux.Get("/healthz", Healthz())
 	mux.Get("/readyz", Readyz(deps.Readiness))
+	// The contract is served from the binary, so what a client reads is always the
+	// contract this build implements (ADR-009).
+	mux.Get("/openapi.json", OpenAPI())
+	mux.Get("/openapi.yaml", OpenAPIYAML())
 
 	if deps.Admin != nil && deps.Tenants != nil {
 		mux.Mount("/admin", AdminRoutes(deps.Admin, deps.Tenants))

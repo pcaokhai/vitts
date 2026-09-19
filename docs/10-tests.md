@@ -33,7 +33,7 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-08 | US-11 | Cache hit bypasses worker | 2nd identical request → HIT, byte-identical, and the fake worker call count unchanged; billed | `cache/*_test.go`, `synth/cache_hit_test.go` | int | proposed M1 | yes |
 | T-09 | US-14 | Job resume | kill orchestrator mid-job → restart → done segments not re-run | `jobs/resume_test.go` | int | proposed M2 | yes |
 | T-10 | US-15 | SSRF guard | `http://`, `127.0.0.1`, `10.x`, `169.254.x`, DNS→private → 422 | `jobs/webhook_guard_test.go` | unit | proposed M2 | yes |
-| T-11 | NFR-07 | No secrets/text in logs | run suite with log capture; grep for key secret and sample text → none | `telemetry/redaction_test.go` | int | proposed M1 | yes |
+| T-11 | NFR-07 | No secrets/text in logs | log capture contains metadata and a digest prefix, never a key secret, an Authorization header or request text | `internal/telemetry/redaction_test.go` | unit | done (1.14) | yes |
 | T-12 | 07-permissions | Tenant isolation | tenant A cannot read B's job/usage/keys → 404/empty | `http/isolation_test.go` | int | proposed M2 | yes |
 | T-13 | US-12 | Overload rejects fast | k6 3× → p95 503 latency < 50 ms; stream still served | `scripts/loadtest/spike.js` | load | proposed M3 | release |
 | T-14 | US-09 | TTFA SLO | k6 80% util → p95 ≤ 300 ms | `scripts/loadtest/steady.js` | load | proposed M3 | release |
@@ -78,6 +78,11 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-59 | US-16 | Meter never blocks | a stalled writer drops records and counts them instead of blocking Record | `internal/usage/meter_test.go` | unit | done (1.12) | yes |
 | T-60 | US-16 | Meter drains on shutdown | queued records are written before Stop returns | `internal/usage/meter_test.go` | unit | done (1.12) | yes |
 | T-61 | ADR-010 | Cancelled stream billing | billed characters come from delivered audio, capped at the request | `internal/synth/stream_test.go`, live stack | unit | done (1.10) | yes |
+| T-62 | US-10 | WebSocket utterance | request frame → binary audio then `{"type":"end"}` with duration | `internal/http/websocket_test.go` | unit | done (1.11) | yes |
+| T-63 | US-10 | Barge-in keeps the socket | cancel stops the utterance and the next request succeeds on the same socket; every slot released | `internal/http/websocket_test.go`, live stack | unit | done (1.11) | yes |
+| T-64 | US-01 | Slot released after cancel | worker frees its inference slot ≤ 200 ms after a client cancel | measured against the live worker | manual | done (1.11) | no |
+| T-65 | ADR-009 | Contract is served | `/openapi.json` and `/openapi.yaml` serve the embedded contract without a credential | `internal/http/openapi_test.go` | unit | done (1.14) | yes |
+| T-66 | ADR-009 | No undeclared error codes | every `Problem.code` the gateway emits is in the contract's enum | `internal/http/openapi_test.go` | unit | done (1.14) | yes |
 | T-26 | US-02 | Stack smoke | `make up` → worker healthy; one streamed synthesis, frames ordered, `last=true` present | `scripts/smoke.sh` | e2e | done (0.6, gateway leg 1.1) | no |
 | T-25 | US-01 | First frame latency | TTFA ≤ 150 ms for a 21-char input on the bench machine | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.4) | no |
 | T-24 | NFR-06 | Worker config validation | missing revision / partial `VITTS_S3_*` → exit non-zero with a named variable | `worker/tests/test_config.py` | unit | done (0.3) | yes |

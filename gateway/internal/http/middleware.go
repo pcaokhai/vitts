@@ -1,7 +1,10 @@
 package http
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"strings"
@@ -135,5 +138,23 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 }
 
 // Unwrap lets http.ResponseController reach the underlying writer, which the streaming
-// endpoint in task 1.10 needs for flushing.
+// endpoint needs for flushing.
 func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+// Hijack delegates to the underlying writer so the WebSocket endpoint can take over the
+// connection. Without it the upgrade fails and the client sees an immediate EOF, because
+// wrapping a ResponseWriter hides the interfaces it implements.
+func (s *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := s.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("%w: response writer does not support hijacking", http.ErrNotSupported)
+	}
+
+	conn, buf, err := hijacker.Hijack()
+	if err != nil {
+		return nil, nil, fmt.Errorf("hijack: %w", err)
+	}
+	// The connection is no longer ours; the access log records what was sent so far.
+	s.written = true
+	return conn, buf, nil
+}

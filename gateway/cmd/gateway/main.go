@@ -194,6 +194,11 @@ func run() error {
 					Handler: gatewayhttp.SynthesizeStream(synthesizer, leases, planLimits),
 				},
 				{
+					Method: stdhttp.MethodGet, Pattern: "/synthesize/ws",
+					Scope: auth.ScopeSynth,
+					Handler: gatewayhttp.SynthesizeWS(synthesizer, leases, planLimits),
+				},
+				{
 					Method: stdhttp.MethodGet, Pattern: "/voices",
 					Scope: auth.ScopeSynth, Handler: gatewayhttp.ListVoices(catalogue),
 				},

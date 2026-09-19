@@ -27,7 +27,7 @@ setup: ## Install the toolchain (go, uv, buf, oapi-codegen, sqlc, golangci-lint,
 generate: ## Regenerate proto, OpenAPI and sqlc code (CI fails on diff)
 	@if [ -f proto/buf.gen.yaml ]; then cd proto && buf generate && python3 ../scripts/postgen.py; else $(call pending,0.2,proto stubs); fi
 	@if [ -f gateway/sqlc.yaml ]; then cd gateway && sqlc generate; else $(call pending,1.2,sqlc); fi
-	@$(call pending,1.14,openapi server stubs)
+	@cp docs/api/openapi.yaml gateway/api/openapi.yaml
 
 lint: ## golangci-lint, ruff, mypy, buf lint
 	@if command -v gitleaks >/dev/null; then gitleaks dir . --no-banner --redact; else $(call pending,0.2,gitleaks); fi

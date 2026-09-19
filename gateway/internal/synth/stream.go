@@ -14,6 +14,9 @@ import (
 	"github.com/pcaokhai/vitts/gateway/internal/audio"
 	"github.com/pcaokhai/vitts/gateway/internal/cache"
 	"github.com/pcaokhai/vitts/gateway/internal/dispatch"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	workerpb "github.com/pcaokhai/vitts/gateway/internal/gen/workerpb"
 	"github.com/pcaokhai/vitts/gateway/internal/voices"
 )
@@ -153,53 +156,46 @@ func (s *Service) streamFromCache(ctx context.Context, req Request, key cache.Ke
 func (s *Service) streamFromWorker(
 	ctx context.Context, req Request, key cache.Key, voice voices.Voice, sink StreamSink, lease Lease,
 ) (StreamResult, error) {
-	reservation, err := s.dispatcher.Reserve(ctx, dispatch.ClassStream)
-	if err != nil {
-		return StreamResult{}, err
-	}
-	defer reservation.Release()
-
 	// Tied to the client: a disconnect cancels the worker call within one frame
 	// (US-09 acceptance criterion 2, T-07).
 	workerCtx, cancel := context.WithTimeout(ctx, workerDeadline)
 	defer cancel()
 
-	started := time.Now()
-	stream, err := reservation.Client.Worker.Synthesize(workerCtx, &workerpb.SynthesizeRequest{
-		RequestId: req.RequestID, Text: req.Text, VoiceId: voice.ID,
-		Normalize: req.Normalize, Params: toProtoParams(req.Params),
-		OutputSampleRate: req.SampleRate,
-	})
+	reservation, stream, firstFrame, started, err := s.openStream(ctx, workerCtx, req, voice)
 	if err != nil {
-		return StreamResult{}, fmt.Errorf("%w: %w", ErrWorkerFailed, err)
+		return StreamResult{}, err
 	}
-
-	if err := sink.Header(req.SampleRate); err != nil {
-		return StreamResult{}, fmt.Errorf("write header: %w", err)
-	}
+	defer reservation.Release()
 
 	var (
-		teed      bytes.Buffer
-		ttfaMS    int32
-		lastSeq   uint32
-		seen      bool
-		lastRenew = time.Now()
+		// The header is written when the first audio arrives, not before: a refusal
+		// before any audio must become a clean error, not a truncated stream.
+		headerWritten bool
+		teed          bytes.Buffer
+		ttfaMS        int32
+		lastSeq       uint32
+		seen          bool
+		lastRenew     = time.Now()
 	)
 
+	frame := firstFrame
 	for {
-		frame, recvErr := stream.Recv()
-		if errors.Is(recvErr, io.EOF) {
-			break
-		}
-		if recvErr != nil {
-			if ctx.Err() != nil {
-				// The client hung up. Bill what was delivered, keep nothing.
-				result := s.cancelledResult(teed.Len(), req, ttfaMS)
-				s.meterStream(context.WithoutCancel(ctx), req, key, voice, result, "client_cancelled")
-				return result, nil
+		if frame == nil {
+			received, recvErr := stream.Recv()
+			if errors.Is(recvErr, io.EOF) {
+				break
 			}
-			s.meterStream(ctx, req, key, voice, StreamResult{}, "error")
-			return StreamResult{}, fmt.Errorf("%w: %w", ErrWorkerFailed, recvErr)
+			if recvErr != nil {
+				if ctx.Err() != nil {
+					// The client hung up. Bill what was delivered, keep nothing.
+					result := s.cancelledResult(teed.Len(), req, ttfaMS)
+					s.meterStream(context.WithoutCancel(ctx), req, key, voice, result, "client_cancelled")
+					return result, nil
+				}
+				s.meterStream(ctx, req, key, voice, StreamResult{}, "error")
+				return StreamResult{}, classifyWorkerError(recvErr)
+			}
+			frame = received
 		}
 
 		if seen && frame.GetSeq() != lastSeq+1 {
@@ -209,6 +205,12 @@ func (s *Service) streamFromWorker(
 		lastSeq, seen = frame.GetSeq(), true
 
 		if pcm := frame.GetPcm16(); len(pcm) > 0 {
+			if !headerWritten {
+				if err := sink.Header(req.SampleRate); err != nil {
+					return StreamResult{}, fmt.Errorf("write header: %w", err)
+				}
+				headerWritten = true
+			}
 			if ttfaMS == 0 {
 				ttfaMS = clampMS(time.Since(started).Milliseconds())
 			}
@@ -223,9 +225,9 @@ func (s *Service) streamFromWorker(
 			teed.Write(pcm)
 		}
 
-		// Renewing per frame rather than per chunk of wall clock keeps a long stream's
-		// lease alive without a timer (US-06 acceptance criterion 3).
-		if time.Since(lastRenew) > ratelimitRenewEvery {
+		// Renewing on a timer inside the loop keeps a long stream's lease alive without
+		// a separate goroutine (US-06 acceptance criterion 3).
+		if time.Since(lastRenew) > leaseRenewEvery {
 			if err := lease.Renew(ctx); err != nil {
 				s.logger.Warn().Err(err).Str("request_id", req.RequestID).Msg("stream lease lost")
 			}
@@ -235,6 +237,7 @@ func (s *Service) streamFromWorker(
 		if frame.GetLast() {
 			break
 		}
+		frame = nil
 	}
 
 	durationMS := audio.DurationMS(teed.Len(), req.SampleRate)
@@ -250,9 +253,58 @@ func (s *Service) streamFromWorker(
 	return result, nil
 }
 
-// ratelimitRenewEvery is how often a running stream refreshes its lease. Well inside the
+// openStream reserves a slot and opens the worker stream, retrying when the worker
+// refuses a slot the pool had advertised.
+//
+// Opening a server stream does not round-trip, so a refusal only surfaces on the first
+// Recv — which is why the first frame is read here and handed back to the caller. The
+// reservation is returned still held: a stream owns its slot for its whole life.
+func (s *Service) openStream(
+	ctx, workerCtx context.Context, req Request, voice voices.Voice,
+) (*dispatch.Reservation, workerpb.Worker_SynthesizeClient, *workerpb.AudioFrame, time.Time, error) {
+	var lastErr error
+
+	for attempt := range workerAttempts {
+		reservation, err := s.dispatcher.Reserve(ctx, dispatch.ClassStream)
+		if err != nil {
+			return nil, nil, nil, time.Time{}, err
+		}
+
+		started := time.Now()
+		stream, err := reservation.Client.Worker.Synthesize(workerCtx, &workerpb.SynthesizeRequest{
+			RequestId: req.RequestID, Text: req.Text, VoiceId: voice.ID,
+			Normalize: req.Normalize, Params: toProtoParams(req.Params),
+			OutputSampleRate: req.SampleRate,
+		})
+		if err == nil {
+			var first *workerpb.AudioFrame
+			first, err = stream.Recv()
+			if err == nil {
+				return reservation, stream, first, started, nil
+			}
+		}
+
+		reservation.Release()
+		if status.Code(err) != codes.ResourceExhausted {
+			return nil, nil, nil, time.Time{}, classifyWorkerError(err)
+		}
+
+		lastErr = err
+		s.logger.Debug().Str("request_id", req.RequestID).Int("attempt", attempt+1).
+			Msg("worker refused an advertised slot, re-reserving")
+
+		if err := sleepCtx(ctx, slotRetryBackoff); err != nil {
+			return nil, nil, nil, time.Time{}, err
+		}
+	}
+
+	return nil, nil, nil, time.Time{},
+		fmt.Errorf("%w: worker slot taken on every attempt: %w", dispatch.ErrOverloaded, lastErr)
+}
+
+// leaseRenewEvery is how often a running stream refreshes its lease. Well inside the
 // 60 s TTL, so one slow frame cannot lose the slot.
-const ratelimitRenewEvery = 20 * time.Second
+const leaseRenewEvery = 20 * time.Second
 
 // cancelledResult bills the audio actually delivered (ADR-010).
 func (s *Service) cancelledResult(pcmBytes int, req Request, ttfaMS int32) StreamResult {
@@ -280,4 +332,16 @@ func clampMS(ms int64) int32 {
 		return 0
 	}
 	return int32(ms) //nolint:gosec // clamped on both sides above
+}
+
+// classifyWorkerError turns a gRPC failure into the error the transport should surface.
+//
+// RESOURCE_EXHAUSTED is the worker refusing a slot it had already advertised as free: the
+// pool's view is up to one health poll stale, and the worker is the authority (ADR-003).
+// That is overload, not a broken worker, so the caller is told to retry.
+func classifyWorkerError(err error) error {
+	if status.Code(err) == codes.ResourceExhausted {
+		return fmt.Errorf("%w: worker slot taken", dispatch.ErrOverloaded)
+	}
+	return fmt.Errorf("%w: %w", ErrWorkerFailed, err)
 }

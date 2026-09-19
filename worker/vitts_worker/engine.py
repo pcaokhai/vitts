@@ -27,6 +27,12 @@ log = structlog.get_logger(__name__)
 
 RTF_EWMA_ALPHA = 0.2
 
+# Model frames per streamed chunk. Cancellation is checked between chunks, so this is the
+# granularity of "stop now": upstream's default of 16 frames measured 735 ms to release
+# the slot, well past the 200 ms US-01 acceptance criterion 3 allows. Four frames brings
+# it inside the budget at the cost of slightly more per-chunk overhead.
+STREAM_MAX_CHUNK_FRAMES = 4
+
 # Characters of Vietnamese per second of audio, fixed by ADR-010. Used only to meter a
 # request the caller cancelled mid-stream: upstream exposes no text position, so a
 # cancelled request is billed from the audio it actually produced. A completed request
@@ -209,6 +215,7 @@ class Engine:
         frames = self.tts.synthesize_stream(
             text,
             voice=voice_id,
+            max_chunk_frames=STREAM_MAX_CHUNK_FRAMES,
             cfg_scale=params.cfg_scale,
             audio_temperature=params.audio_temperature,
             audio_topk=params.audio_topk,

@@ -6,11 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/pcaokhai/vitts/gateway/internal/audio"
 	"github.com/pcaokhai/vitts/gateway/internal/cache"
@@ -169,72 +170,71 @@ func (s *Service) fromCache(ctx context.Context, req Request, key cache.Key, voi
 
 // fromWorker performs the synthesis.
 func (s *Service) fromWorker(ctx context.Context, req Request, key cache.Key, voice voices.Voice) (Result, error) {
-	reservation, err := s.dispatcher.Reserve(ctx, dispatch.ClassSync)
-	if err != nil {
-		return Result{}, err // overload or cancellation; the transport maps it
-	}
-	defer reservation.Release()
-
 	ctx, cancel := context.WithTimeout(ctx, workerDeadline)
 	defer cancel()
-
-	started := time.Now()
-	stream, err := reservation.Client.Worker.Synthesize(ctx, &workerpb.SynthesizeRequest{
-		RequestId:        req.RequestID,
-		Text:             req.Text,
-		VoiceId:          voice.ID,
-		Normalize:        req.Normalize,
-		Params:           toProtoParams(req.Params),
-		OutputSampleRate: req.SampleRate,
-	})
-	if err != nil {
-		return Result{}, fmt.Errorf("%w: %w", ErrWorkerFailed, err)
-	}
 
 	var (
 		pcm     bytes.Buffer
 		ttfaMS  int32
-		lastSeq uint32
-		seen    bool
+		started time.Time
 	)
-	for {
-		frame, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
+
+	err := s.withWorker(ctx, dispatch.ClassSync, req.RequestID, func(client dispatch.Client) error {
+		pcm.Reset()
+		ttfaMS = 0
+		started = time.Now()
+
+		stream, err := client.Worker.Synthesize(ctx, &workerpb.SynthesizeRequest{
+			RequestId:        req.RequestID,
+			Text:             req.Text,
+			VoiceId:          voice.ID,
+			Normalize:        req.Normalize,
+			Params:           toProtoParams(req.Params),
+			OutputSampleRate: req.SampleRate,
+		})
 		if err != nil {
-			s.bill(ctx, req, key, voice, 0, false, "error")
-			return Result{}, fmt.Errorf("%w: %w", ErrWorkerFailed, err)
+			return err //nolint:wrapcheck // withWorker inspects the gRPC status code
 		}
 
-		if seen && frame.GetSeq() != lastSeq+1 {
-			// Out-of-order frames mean the audio would be wrong; failing is better than
-			// returning something that sounds broken (US-09 acceptance criterion 3).
-			s.bill(ctx, req, key, voice, 0, false, "error")
-			return Result{}, fmt.Errorf("%w: frame %d after %d", ErrWorkerFailed, frame.GetSeq(), lastSeq)
-		}
-		lastSeq, seen = frame.GetSeq(), true
-
-		if ttfaMS == 0 && len(frame.GetPcm16()) > 0 {
-			// Bounded by workerDeadline, but clamped rather than trusted: a wrapped
-			// negative latency in a metric is worse than a saturated one.
-			elapsed := time.Since(started).Milliseconds()
-			if elapsed > math.MaxInt32 {
-				elapsed = math.MaxInt32
+		var (
+			lastSeq uint32
+			seen    bool
+		)
+		for {
+			frame, recvErr := stream.Recv()
+			if errors.Is(recvErr, io.EOF) {
+				return nil
 			}
-			ttfaMS = int32(elapsed) //nolint:gosec // clamped to MaxInt32 above
-		}
-		pcm.Write(frame.GetPcm16())
+			if recvErr != nil {
+				return recvErr //nolint:wrapcheck // withWorker inspects the gRPC status code
+			}
 
-		if frame.GetLast() {
-			break
+			if seen && frame.GetSeq() != lastSeq+1 {
+				// Out-of-order frames mean the audio would be wrong; failing beats
+				// returning something that sounds broken (US-09 acceptance criterion 3).
+				return fmt.Errorf("%w: frame %d after %d", ErrWorkerFailed, frame.GetSeq(), lastSeq)
+			}
+			lastSeq, seen = frame.GetSeq(), true
+
+			if len(frame.GetPcm16()) > 0 && ttfaMS == 0 {
+				ttfaMS = clampMS(time.Since(started).Milliseconds())
+			}
+			pcm.Write(frame.GetPcm16())
+
+			if frame.GetLast() {
+				return nil
+			}
 		}
+	})
+	if err != nil {
+		s.bill(ctx, req, key, voice, 0, false, "error")
+		return Result{}, classifyWorkerError(err)
 	}
 
 	durationMS := audio.DurationMS(pcm.Len(), req.SampleRate)
 
-	// Cache write must not fail the request the tenant is waiting on: the audio is
-	// already correct, and a missing cache entry only costs the next caller.
+	// A cache write must not fail the request the tenant is waiting on: the audio is
+	// already correct, and a missing entry only costs the next caller.
 	if err := s.cache.Store(ctx, key, cache.Entry{
 		Format:     "pcm16",
 		DurationMS: durationMS,
@@ -331,6 +331,59 @@ func (s *Service) billWithTTFA(
 	})
 }
 
+// workerAttempts is how many times a request may re-reserve after a worker refuses a
+// slot it had advertised. The pool's view lags one health poll, so a refusal usually
+// means "a moment too early", and Reserve then waits inside the class budget for the
+// slot to free rather than failing the caller (ADR-003, ADR-007).
+const workerAttempts = 3
+
+// slotRetryBackoff is how long to wait before re-reserving after a worker refuses.
+//
+// A cancelled inference releases its slot only once the in-flight frame finishes, which
+// the worker measured at well under 200 ms. Retrying immediately just collects the same
+// refusal three times; three spaced attempts stay inside the stream class's 2 s budget.
+const slotRetryBackoff = 150 * time.Millisecond
+
+// withWorker reserves a slot and runs fn, retrying on a worker's RESOURCE_EXHAUSTED.
+//
+// It never waits beyond the dispatcher's class budget: each retry goes back through
+// Reserve, which owns that budget, so a genuinely saturated fleet still fails fast.
+func (s *Service) withWorker(
+	ctx context.Context, class dispatch.Class, requestID string,
+	fn func(client dispatch.Client) error,
+) error {
+	var lastErr error
+	for attempt := range workerAttempts {
+		reservation, err := s.dispatcher.Reserve(ctx, class)
+		if err != nil {
+			return err
+		}
+
+		err = fn(reservation.Client)
+		reservation.Release()
+
+		if err == nil {
+			return nil
+		}
+		if status.Code(err) != codes.ResourceExhausted {
+			return err
+		}
+
+		lastErr = err
+		s.logger.Debug().
+			Str("request_id", requestID).
+			Str("worker", reservation.Client.Addr).
+			Int("attempt", attempt+1).
+			Msg("worker refused an advertised slot, re-reserving")
+
+		if err := sleepCtx(ctx, slotRetryBackoff); err != nil {
+			return err
+		}
+	}
+
+	return fmt.Errorf("%w: worker slot taken on every attempt: %w", dispatch.ErrOverloaded, lastErr)
+}
+
 func wrap(pcm []byte, sampleRate int32) ([]byte, error) {
 	size, err := audio.PCMSize(len(pcm))
 	if err != nil {
@@ -354,5 +407,18 @@ func toProtoParams(p cache.Params) *workerpb.SynthesisParams {
 		AudioTopp:              float32(p.AudioTopP),
 		AudioRepetitionPenalty: float32(p.AudioRepetitionPenalty),
 		EoaExtraFrames:         p.EOAExtraFrames,
+	}
+}
+
+// sleepCtx waits for d unless the caller goes away first.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("wait for worker slot: %w", ctx.Err())
+	case <-timer.C:
+		return nil
 	}
 }

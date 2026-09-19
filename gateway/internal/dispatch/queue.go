@@ -191,12 +191,16 @@ func (d *Dispatcher) tryReserve(class Class) (*Reservation, bool) {
 	}
 
 	d.inFlight[class]++
+	// Tell the pool immediately: its health snapshot will not show this slot as busy
+	// until the next poll, and admitting against it twice is the failure this prevents.
+	d.pool.NoteSlotTaken(client.Addr)
 	started := time.Now()
 
 	return &Reservation{
 		Client: client,
 		class:  class,
 		release: func() {
+			d.pool.NoteSlotFreed(client.Addr)
 			d.releaseSlot(class, time.Since(started))
 		},
 	}, true
@@ -212,12 +216,8 @@ func (d *Dispatcher) capacity() (total, free int) {
 		free += int(snap.Free())
 	}
 
-	// Slots already reserved here are not yet visible in a worker's health snapshot,
-	// which is up to one poll interval stale. Subtracting them prevents admitting the
-	// same slot twice in that window.
-	for _, held := range d.inFlight {
-		free -= held
-	}
+	// No adjustment for in-flight work: the pool is told as slots are taken and freed,
+	// so the snapshot already accounts for what this gateway holds.
 	if free < 0 {
 		free = 0
 	}

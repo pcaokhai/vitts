@@ -192,6 +192,37 @@ func (p *Pool) Pick() (Client, error) {
 	return Client{Addr: snap.Addr, ModelVersion: snap.ModelVersion, Worker: best.client}, nil
 }
 
+// NoteSlotTaken and NoteSlotFreed keep the pool's view current between health polls.
+//
+// A worker's snapshot is up to one poll interval stale, and we are the ones making it
+// stale: without this, a stream that ends is invisible for seconds, and the next request
+// is refused against capacity that is actually free. The poll corrects the count either
+// way, so a mistake here self-heals within one interval.
+func (p *Pool) NoteSlotTaken(addr string) { p.adjustBusy(addr, 1) }
+
+// NoteSlotFreed records that a slot this gateway held has been released.
+func (p *Pool) NoteSlotFreed(addr string) { p.adjustBusy(addr, -1) }
+
+func (p *Pool) adjustBusy(addr string, delta int32) {
+	for _, w := range p.workers {
+		if w.addr != addr {
+			continue
+		}
+
+		w.mu.Lock()
+		busy := w.state.SlotsBusy + delta
+		if busy < 0 {
+			busy = 0
+		}
+		if busy > w.state.SlotsTotal {
+			busy = w.state.SlotsTotal
+		}
+		w.state.SlotsBusy = busy
+		w.mu.Unlock()
+		return
+	}
+}
+
 // Snapshots returns the current view of every worker, for /readyz and metrics.
 func (p *Pool) Snapshots() []Snapshot {
 	out := make([]Snapshot, 0, len(p.workers))
