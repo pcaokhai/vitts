@@ -7,6 +7,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
+	"github.com/pcaokhai/vitts/gateway/internal/auth"
 	"github.com/pcaokhai/vitts/gateway/internal/telemetry"
 	"github.com/pcaokhai/vitts/gateway/internal/tenants"
 )
@@ -18,6 +19,23 @@ type Deps struct {
 	Readiness *Readiness
 	Admin     *AdminGuard
 	Tenants   *tenants.Service
+	// Auth, Limiter and Plans protect the tenant API under /v1.
+	Auth    *auth.Authenticator
+	Limiter RateLimiter
+	Plans   PlanLimits
+	// TenantAPI are the /v1 routes. Handlers arrive with the tasks that own them
+	// (1.9 synthesize, 1.13 voices, 2.3 jobs); passing them here is what puts them
+	// behind the guard chain, so a route cannot be registered outside it.
+	TenantAPI []Route
+}
+
+// Route is one tenant endpoint.
+type Route struct {
+	Method  string
+	Pattern string
+	Handler http.HandlerFunc
+	// Scope the key must carry, or "" when the endpoint needs none beyond a valid key.
+	Scope auth.Scope
 }
 
 // Router builds the gateway's HTTP handler.
@@ -37,6 +55,9 @@ func Router(deps Deps) http.Handler {
 
 	if deps.Admin != nil && deps.Tenants != nil {
 		mux.Mount("/admin", AdminRoutes(deps.Admin, deps.Tenants))
+	}
+	if deps.Auth != nil && deps.Limiter != nil && deps.Plans != nil {
+		mux.Mount("/v1", TenantRoutes(deps))
 	}
 
 	// Routing failures are protocol-level, so they keep their own status. The code
@@ -58,4 +79,29 @@ func Router(deps Deps) http.Handler {
 	})
 
 	return otelhttp.NewHandler(mux, telemetry.ServiceName)
+}
+
+// TenantRoutes is the authenticated tenant API.
+//
+// Order is load-bearing: authenticate before rate limiting, because the bucket is per key
+// and its size comes from the tenant's plan, and a scope check last so a key that is
+// valid but unauthorised still spends its budget rather than probing for free.
+//
+// chi runs middleware only for matched routes, so an unmatched /v1 path is a plain 404
+// and the chain protects exactly the routes registered here — which is why routes are
+// passed in rather than registered elsewhere.
+func TenantRoutes(deps Deps) http.Handler {
+	r := chi.NewRouter()
+	r.Use(Authenticate(deps.Auth))
+	r.Use(RateLimit(deps.Limiter, deps.Plans))
+
+	for _, route := range deps.TenantAPI {
+		handler := http.Handler(route.Handler)
+		if route.Scope != "" {
+			handler = RequireScope(route.Scope)(handler)
+		}
+		r.Method(route.Method, route.Pattern, handler)
+	}
+
+	return r
 }

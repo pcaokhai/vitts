@@ -17,6 +17,7 @@ type Querier interface {
 	// API key lookup. The secret is never stored: callers hash it and look up by digest,
 	// and the comparison happens on the hash (.claude/rules/security.md).
 	GetAPIKeyByHash(ctx context.Context, keyHash []byte) (GetAPIKeyByHashRow, error)
+	GetCacheEntry(ctx context.Context, cacheKey []byte) (AudioCache, error)
 	GetPlan(ctx context.Context, id string) (Plan, error)
 	// Tenant and plan reads. Every tenant-owned query filters on tenant_id; a tenant that is
 	// not active must not be served (US-05).
@@ -24,7 +25,16 @@ type Querier interface {
 	ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ApiKey, error)
 	ListPlans(ctx context.Context) ([]Plan, error)
 	RevokeAPIKey(ctx context.Context, arg RevokeAPIKeyParams) (int64, error)
+	// Usage reads for quota reconciliation. synth_requests is the system of record; the
+	// usage_daily rollup arrives with migration 0002 (task 2.1) and can replace this scan
+	// once it exists.
+	SumCharsByTenantSince(ctx context.Context, arg SumCharsByTenantSinceParams) ([]SumCharsByTenantSinceRow, error)
 	TouchAPIKeyLastUsed(ctx context.Context, id uuid.UUID) error
+	TouchCacheEntry(ctx context.Context, cacheKey []byte) error
+	// Audio cache catalogue. Redis is the fast index; these rows are what survives a Redis
+	// flush and what the eviction job scans (FL-07, task 2.8).
+	UpsertCacheEntry(ctx context.Context, arg UpsertCacheEntryParams) error
+	UpsertPlan(ctx context.Context, arg UpsertPlanParams) error
 }
 
 var _ Querier = (*Queries)(nil)

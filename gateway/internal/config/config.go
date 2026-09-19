@@ -34,6 +34,8 @@ type Config struct {
 	AdminKey         string
 	AdminAllowlist   []netip.Prefix
 	WorkerAddrs      []string
+	RedisURL         string
+	RedisPoolSize    int
 	ShutdownTimeout  time.Duration
 }
 
@@ -54,6 +56,9 @@ const (
 	// defaultDatabaseMaxConns keeps the pool bounded and well under Postgres'
 	// default max_connections, which several gateway replicas share.
 	defaultDatabaseMaxConns = 20
+	// defaultRedisPoolSize bounds connections to Redis, which every request touches for
+	// rate limiting and quota.
+	defaultRedisPoolSize = 32
 	// minAdminKeyLen matches the pre-go-live checklist in docs/08-variables.md.
 	minAdminKeyLen = 32
 )
@@ -73,6 +78,8 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		DatabaseMaxConns: defaultDatabaseMaxConns,
 		AdminKey:         value(lookup, "VITTS_ADMIN_KEY", ""),
 		WorkerAddrs:      splitList(value(lookup, "VITTS_WORKER_ADDRS", "")),
+		RedisURL:         value(lookup, "VITTS_REDIS_URL", ""),
+		RedisPoolSize:    defaultRedisPoolSize,
 		ShutdownTimeout:  defaultShutdownTimeout,
 	}
 
@@ -115,6 +122,12 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, &Error{
 			Variable: "VITTS_ADMIN_IP_ALLOWLIST",
 			Reason:   "must list at least one CIDR; admin endpoints are never open",
+		}
+	}
+	if cfg.RedisURL == "" {
+		return Config{}, &Error{
+			Variable: "VITTS_REDIS_URL",
+			Reason:   "is required; rate limits and quota are enforced from Redis",
 		}
 	}
 	if len(cfg.WorkerAddrs) == 0 {

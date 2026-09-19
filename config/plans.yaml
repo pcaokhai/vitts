@@ -1,0 +1,48 @@
+# Plan tiers. PLACEHOLDER VALUES — fill these in when pricing is decided.
+#
+# This file is the source of plan rows. `make seed` upserts it into the `plans` table;
+# migration 0001 deliberately ships none, so nothing invented reaches production by
+# accident (ADR-006 covers pricing, docs/plans/1.2.md explains why).
+#
+# Fields:
+#   chars_per_month          monthly character allowance; 0 means metered-only (pay as you go)
+#   req_per_minute           per-key request rate (US-06)
+#   max_concurrent_streams   per-tenant simultaneous streams (US-06)
+#   max_job_chars            largest single async job (F-03)
+#   price_usd_cents          recurring price, 0 for free and pay-as-you-go
+#   overage_usd_per_million  price beyond the allowance; null means hard stop at the quota
+#
+# Quota is enforced at chars_per_month x 1.05 (US-07), so the 5% grace is not encoded here.
+
+plans:
+  - id: free
+    chars_per_month: 100000          # TODO(pricing): placeholder
+    req_per_minute: 30               # TODO(pricing): placeholder
+    max_concurrent_streams: 1        # TODO(pricing): placeholder
+    max_job_chars: 20000             # TODO(pricing): placeholder
+    price_usd_cents: 0
+    overage_usd_per_million: null    # hard stop: free tier does not bill overage
+
+  - id: starter
+    chars_per_month: 2000000         # TODO(pricing): placeholder
+    req_per_minute: 120              # TODO(pricing): placeholder
+    max_concurrent_streams: 3        # TODO(pricing): placeholder
+    max_job_chars: 100000            # TODO(pricing): placeholder
+    price_usd_cents: 0               # TODO(pricing): placeholder
+    overage_usd_per_million: null    # TODO(pricing): placeholder
+
+  - id: pro
+    chars_per_month: 20000000        # TODO(pricing): placeholder
+    req_per_minute: 600              # TODO(pricing): placeholder
+    max_concurrent_streams: 20       # TODO(pricing): placeholder
+    max_job_chars: 100000            # TODO(pricing): placeholder
+    price_usd_cents: 0               # TODO(pricing): placeholder
+    overage_usd_per_million: null    # TODO(pricing): placeholder
+
+  - id: payg
+    chars_per_month: 0               # metered only, no included allowance
+    req_per_minute: 300              # TODO(pricing): placeholder
+    max_concurrent_streams: 10       # TODO(pricing): placeholder
+    max_job_chars: 100000            # TODO(pricing): placeholder
+    price_usd_cents: 0
+    overage_usd_per_million: null    # TODO(pricing): placeholder

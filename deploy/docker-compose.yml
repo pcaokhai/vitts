@@ -34,6 +34,7 @@ services:
       VITTS_ADMIN_IP_ALLOWLIST: ${VITTS_ADMIN_IP_ALLOWLIST:-172.16.0.0/12,192.168.0.0/16,127.0.0.1/32}
       VITTS_DATABASE_URL: postgres://vitts:vitts@postgres:5432/vitts?sslmode=disable
       VITTS_WORKER_ADDRS: ${VITTS_WORKER_ADDRS:-worker:50051}
+      VITTS_REDIS_URL: redis://redis:6379/0
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     ports:
       - "${VITTS_GATEWAY_PORT:-8080}:8080"

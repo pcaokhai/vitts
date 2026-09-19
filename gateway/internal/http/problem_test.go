@@ -32,7 +32,7 @@ func TestWriteProblemStatusPerCode(t *testing.T) {
 		gatewayhttp.CodeForbiddenScope:      http.StatusForbidden,
 		gatewayhttp.CodeJobNotFound:         http.StatusNotFound,
 		gatewayhttp.CodeIdempotencyConflict: http.StatusConflict,
-		gatewayhttp.CodeQuotaExceeded:       http.StatusTooManyRequests,
+		gatewayhttp.CodeQuotaExceeded:       http.StatusPaymentRequired,
 		gatewayhttp.CodeRateLimited:         http.StatusTooManyRequests,
 		gatewayhttp.CodeConcurrencyLimited:  http.StatusTooManyRequests,
 		gatewayhttp.CodeOverloaded:          http.StatusServiceUnavailable,

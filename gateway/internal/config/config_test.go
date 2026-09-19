@@ -16,6 +16,7 @@ var baseEnv = map[string]string{
 	"VITTS_ADMIN_KEY":          strings.Repeat("k", 32),
 	"VITTS_ADMIN_IP_ALLOWLIST": "127.0.0.1/32",
 	"VITTS_WORKER_ADDRS":       "worker:50051",
+	"VITTS_REDIS_URL":          "redis://localhost:6379/0",
 }
 
 func withBase(overrides map[string]string) map[string]string {
@@ -76,6 +77,10 @@ func TestLoadRejectsBadValues(t *testing.T) {
 		"empty admin allowlist": {
 			vars:     withBase(map[string]string{"VITTS_ADMIN_IP_ALLOWLIST": ""}),
 			variable: "VITTS_ADMIN_IP_ALLOWLIST",
+		},
+		"missing redis url": {
+			vars:     withBase(map[string]string{"VITTS_REDIS_URL": ""}),
+			variable: "VITTS_REDIS_URL",
 		},
 		"missing worker addresses": {
 			vars:     withBase(map[string]string{"VITTS_WORKER_ADDRS": ""}),

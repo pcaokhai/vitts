@@ -45,12 +45,12 @@ migrate: ## Apply database migrations to VITTS_DATABASE_URL
 		cd gateway && CGO_ENABLED=0 go run ./cmd/gateway -migrate; \
 	else $(call pending,1.2,migrations); fi
 
-# Dev-only by definition, so it runs psql inside the stack's Postgres rather than
-# requiring a client on the host.
-seed: ## Insert development-only rows (placeholder plan tiers); needs `make migrate` first
-	@if [ -f scripts/seed.sql ]; then \
-		$(COMPOSE) exec -T postgres psql -U vitts -d vitts -v ON_ERROR_STOP=1 < scripts/seed.sql; \
-	else $(call pending,1.2,seed script); fi
+# Plan tiers are configuration, not migration data: config/plans.yaml is the file an
+# operator edits, and re-running this is how a limit changes.
+seed: ## Upsert plan tiers from config/plans.yaml; needs `make migrate` first
+	@if [ -f config/plans.yaml ]; then \
+		cd gateway && CGO_ENABLED=0 go run ./cmd/gateway -seed-plans ../config/plans.yaml; \
+	else $(call pending,1.4,plan config); fi
 
 test-model: ## Worker tests that load the real ZeroTTS weights (~200 MB download)
 	@if [ -f worker/pyproject.toml ]; then cd worker && uv run pytest -m model; else $(call pending,0.3,model tests); fi

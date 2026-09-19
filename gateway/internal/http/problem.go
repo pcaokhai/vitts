@@ -146,7 +146,9 @@ func statusFor(code Code) (int, string) {
 	case CodeIdempotencyConflict:
 		return http.StatusConflict, "Idempotency conflict"
 	case CodeQuotaExceeded:
-		return http.StatusTooManyRequests, "Quota exceeded"
+		// 402, not 429: the tenant is out of allowance, not going too fast, and
+		// retrying without buying more will not help (FL-01 step 5, US-07).
+		return http.StatusPaymentRequired, "Quota exceeded"
 	case CodeRateLimited:
 		return http.StatusTooManyRequests, "Rate limited"
 	case CodeConcurrencyLimited:

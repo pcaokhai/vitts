@@ -20,10 +20,15 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver, used by the migrations job
 	"github.com/pressly/goose/v3"
 
+	"github.com/pcaokhai/vitts/gateway/internal/auth"
 	"github.com/pcaokhai/vitts/gateway/internal/config"
 	"github.com/pcaokhai/vitts/gateway/internal/dispatch"
 	gatewayhttp "github.com/pcaokhai/vitts/gateway/internal/http"
+	"github.com/pcaokhai/vitts/gateway/internal/plans"
+	"github.com/pcaokhai/vitts/gateway/internal/quota"
+	"github.com/pcaokhai/vitts/gateway/internal/ratelimit"
 	"github.com/pcaokhai/vitts/gateway/internal/storage/postgres"
+	redisadapter "github.com/pcaokhai/vitts/gateway/internal/storage/redis"
 	"github.com/pcaokhai/vitts/gateway/internal/telemetry"
 	"github.com/pcaokhai/vitts/gateway/internal/tenants"
 	"github.com/pcaokhai/vitts/gateway/migrations"
@@ -36,11 +41,23 @@ const readHeaderTimeout = 10 * time.Second
 // healthcheckTimeout bounds the self-probe used as the container health check.
 const healthcheckTimeout = 3 * time.Second
 
+// seedTimeout bounds the plan upsert; it touches a handful of rows.
+const seedTimeout = 30 * time.Second
+
 func main() {
 	// The image is distroless: no shell, no curl. The binary probes itself instead.
 	healthcheck := flag.Bool("healthcheck", false, "probe /healthz on the configured address and exit")
 	migrate := flag.Bool("migrate", false, "apply database migrations and exit")
+	seedPlans := flag.String("seed-plans", "", "upsert plan tiers from this YAML file and exit")
 	flag.Parse()
+
+	if *seedPlans != "" {
+		if err := runSeedPlans(*seedPlans); err != nil {
+			fmt.Fprintf(os.Stderr, "gateway: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if *migrate {
 		if err := runMigrations(); err != nil {
@@ -89,6 +106,25 @@ func run() error {
 	}
 	defer pool.Close()
 
+	cache, err := redisadapter.Open(ctx, cfg.RedisURL, cfg.RedisPoolSize)
+	if err != nil {
+		return fmt.Errorf("redis: %w", err)
+	}
+	defer func() {
+		if err := cache.Close(); err != nil {
+			logger.Error().Err(err).Msg("redis shutdown incomplete")
+		}
+	}()
+
+	limiter, err := ratelimit.New(ctx, cache.Raw())
+	if err != nil {
+		return fmt.Errorf("rate limiter: %w", err)
+	}
+
+	quotas := quota.New(redisadapter.NewCounter(cache))
+	// Reconcile runs for the life of the process; ctx is cancelled on shutdown.
+	go quota.NewReconciler(quotas, postgres.NewUsageRepository(pool), logger).Run(ctx)
+
 	workers, err := dispatch.NewPool(cfg.WorkerAddrs, logger, dispatch.Options{})
 	if err != nil {
 		return fmt.Errorf("worker pool: %w", err)
@@ -102,6 +138,7 @@ func run() error {
 
 	readiness := gatewayhttp.NewReadiness()
 	readiness.Register("postgres", pool.Ready)
+	readiness.Register("redis", cache.Ready)
 	readiness.Register("workers", workers.Ready)
 
 	server := &stdhttp.Server{
@@ -111,6 +148,9 @@ func run() error {
 			Readiness: readiness,
 			Admin:     gatewayhttp.NewAdminGuard(cfg.AdminKey, cfg.AdminAllowlist),
 			Tenants:   tenants.NewService(postgres.NewTenantRepository(pool)),
+			Auth:      auth.NewAuthenticator(postgres.NewAuthRepository(pool)),
+			Limiter:   limiter,
+			Plans:     postgres.NewPlanLimits(pool),
 		}),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
@@ -234,5 +274,36 @@ func runMigrations() error {
 	if err := goose.Up(sqlDB, "."); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
+	return nil
+}
+
+// runSeedPlans upserts the operator's plan file. Separate from the migrations job because
+// plan figures are configuration that changes without a schema change, and re-running it
+// is how a limit is adjusted.
+func runSeedPlans(path string) error {
+	url := os.Getenv("VITTS_DATABASE_URL")
+	if url == "" {
+		return errors.New("VITTS_DATABASE_URL is required")
+	}
+
+	tiers, err := plans.Load(path)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), seedTimeout)
+	defer cancel()
+
+	pool, err := postgres.Open(ctx, url, 2)
+	if err != nil {
+		return fmt.Errorf("postgres: %w", err)
+	}
+	defer pool.Close()
+
+	if err := postgres.UpsertPlans(ctx, pool, tiers); err != nil {
+		return fmt.Errorf("upsert plans: %w", err)
+	}
+
+	fmt.Printf("upserted %d plans from %s\n", len(tiers), path)
 	return nil
 }
