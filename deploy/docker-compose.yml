@@ -1,4 +1,8 @@
 # Local development stack. Production overrides live in docker-compose.prod.yml (3.3).
+#
+# Every published host port is overridable, so this stack can run beside another
+# project already holding 5432, 6379 or 8080: set VITTS_PG_PORT and friends in
+# .env.example or the environment.
 name: vitts
 
 services:
@@ -23,10 +27,15 @@ services:
       VITTS_ENV: ${VITTS_ENV:-dev}
       VITTS_HTTP_ADDR: ":8080"
       VITTS_LOG_LEVEL: ${VITTS_LOG_LEVEL:-info}
+      VITTS_ADMIN_KEY: ${VITTS_ADMIN_KEY:?set a 32+ character admin key, see .env.example}
+      # Private ranges only: Docker's bridge (172.16/12) plus Docker Desktop's host
+      # gateway, which is 192.168.65.1 on macOS. Production narrows this to the
+      # operator's own network.
+      VITTS_ADMIN_IP_ALLOWLIST: ${VITTS_ADMIN_IP_ALLOWLIST:-172.16.0.0/12,192.168.0.0/16,127.0.0.1/32}
       VITTS_DATABASE_URL: postgres://vitts:vitts@postgres:5432/vitts?sslmode=disable
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     ports:
-      - "8080:8080"
+      - "${VITTS_GATEWAY_PORT:-8080}:8080"
     healthcheck:
       # Liveness only. /readyz gains Postgres, Redis and the worker pool in 1.2/1.4/1.6,
       # and the image has no shell, so the binary's own endpoint is probed over TCP.
@@ -54,7 +63,7 @@ services:
     volumes:
       - model:/var/lib/vitts/model
     ports:
-      - "50051:50051"
+      - "${VITTS_WORKER_PORT:-50051}:50051"
     healthcheck:
       # Readiness is the Health RPC, not "the port is open": weights take seconds to load.
       test: ["CMD", "python", "-m", "vitts_worker.healthcheck"]
@@ -73,7 +82,7 @@ services:
       POSTGRES_PASSWORD: vitts
       POSTGRES_DB: vitts
     ports:
-      - "5432:5432"
+      - "${VITTS_PG_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -86,7 +95,7 @@ services:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "${VITTS_REDIS_PORT:-6379}:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -104,8 +113,8 @@ services:
       MINIO_ROOT_USER: ${VITTS_S3_ACCESS_KEY:-vitts-dev}
       MINIO_ROOT_PASSWORD: ${VITTS_S3_SECRET_KEY:-vitts-dev-secret}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${VITTS_S3_PORT:-9000}:9000"
+      - "${VITTS_S3_CONSOLE_PORT:-9001}:9001"
     volumes:
       - miniodata:/data
     healthcheck:

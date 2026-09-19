@@ -12,6 +12,30 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createAuditEntry = `-- name: CreateAuditEntry :exec
+insert into audit_log (id, actor, action, target, detail)
+values ($1, $2, $3, $4, $5)
+`
+
+type CreateAuditEntryParams struct {
+	ID     uuid.UUID
+	Actor  string
+	Action string
+	Target *string
+	Detail []byte
+}
+
+func (q *Queries) CreateAuditEntry(ctx context.Context, arg CreateAuditEntryParams) error {
+	_, err := q.db.Exec(ctx, createAuditEntry,
+		arg.ID,
+		arg.Actor,
+		arg.Action,
+		arg.Target,
+		arg.Detail,
+	)
+	return err
+}
+
 const createTenant = `-- name: CreateTenant :one
 insert into tenants (id, plan_id, name, status)
 values ($1, $2, $3, 'active')

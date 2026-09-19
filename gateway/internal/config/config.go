@@ -6,6 +6,7 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"strings"
@@ -30,6 +31,8 @@ type Config struct {
 	OTLPEndpoint     string // empty disables tracing export
 	DatabaseURL      string
 	DatabaseMaxConns int32
+	AdminKey         string
+	AdminAllowlist   []netip.Prefix
 	ShutdownTimeout  time.Duration
 }
 
@@ -50,6 +53,8 @@ const (
 	// defaultDatabaseMaxConns keeps the pool bounded and well under Postgres'
 	// default max_connections, which several gateway replicas share.
 	defaultDatabaseMaxConns = 20
+	// minAdminKeyLen matches the pre-go-live checklist in docs/08-variables.md.
+	minAdminKeyLen = 32
 )
 
 var validLogLevels = map[string]struct{}{
@@ -65,8 +70,15 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		OTLPEndpoint:     value(lookup, "OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 		DatabaseURL:      value(lookup, "VITTS_DATABASE_URL", ""),
 		DatabaseMaxConns: defaultDatabaseMaxConns,
+		AdminKey:         value(lookup, "VITTS_ADMIN_KEY", ""),
 		ShutdownTimeout:  defaultShutdownTimeout,
 	}
+
+	allowlist, err := parsePrefixes(value(lookup, "VITTS_ADMIN_IP_ALLOWLIST", ""))
+	if err != nil {
+		return Config{}, &Error{Variable: "VITTS_ADMIN_IP_ALLOWLIST", Reason: err.Error()}
+	}
+	cfg.AdminAllowlist = allowlist
 
 	if cfg.Env != EnvDev && cfg.Env != EnvProd {
 		return Config{}, &Error{Variable: "VITTS_ENV", Reason: `must be "dev" or "prod"`}
@@ -88,6 +100,20 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	}
 	if _, err := url.Parse(cfg.DatabaseURL); err != nil {
 		return Config{}, &Error{Variable: "VITTS_DATABASE_URL", Reason: "must be a URL"}
+	}
+	// The admin surface can create tenants and read across them, so a short key or an
+	// empty allowlist is a boot failure, not a warning.
+	if len(cfg.AdminKey) < minAdminKeyLen {
+		return Config{}, &Error{
+			Variable: "VITTS_ADMIN_KEY",
+			Reason:   fmt.Sprintf("must be at least %d characters", minAdminKeyLen),
+		}
+	}
+	if len(cfg.AdminAllowlist) == 0 {
+		return Config{}, &Error{
+			Variable: "VITTS_ADMIN_IP_ALLOWLIST",
+			Reason:   "must list at least one CIDR; admin endpoints are never open",
+		}
 	}
 	if cfg.OTLPEndpoint != "" {
 		if _, err := url.Parse(cfg.OTLPEndpoint); err != nil {
@@ -111,4 +137,31 @@ func value(lookup func(string) (string, bool), name, fallback string) string {
 		}
 	}
 	return fallback
+}
+
+// parsePrefixes reads a comma-separated CIDR list. A bare address is accepted and treated
+// as a single-host prefix, because "127.0.0.1" is what an operator types.
+func parsePrefixes(raw string) ([]netip.Prefix, error) {
+	if raw == "" {
+		return nil, nil
+	}
+
+	parts := strings.Split(raw, ",")
+	prefixes := make([]netip.Prefix, 0, len(parts))
+	for _, part := range parts {
+		entry := strings.TrimSpace(part)
+		if entry == "" {
+			continue
+		}
+		if prefix, err := netip.ParsePrefix(entry); err == nil {
+			prefixes = append(prefixes, prefix)
+			continue
+		}
+		addr, err := netip.ParseAddr(entry)
+		if err != nil {
+			return nil, fmt.Errorf("%q is not a CIDR or an IP address", entry)
+		}
+		prefixes = append(prefixes, netip.PrefixFrom(addr, addr.BitLen()))
+	}
+	return prefixes, nil
 }

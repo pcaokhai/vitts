@@ -1,6 +1,8 @@
 package config_test
 
 import (
+	"net/netip"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -10,7 +12,9 @@ import (
 
 // baseEnv is the minimum that lets Load succeed; tests override one key at a time.
 var baseEnv = map[string]string{
-	"VITTS_DATABASE_URL": "postgres://vitts:vitts@localhost:5432/vitts?sslmode=disable",
+	"VITTS_DATABASE_URL":       "postgres://vitts:vitts@localhost:5432/vitts?sslmode=disable",
+	"VITTS_ADMIN_KEY":          strings.Repeat("k", 32),
+	"VITTS_ADMIN_IP_ALLOWLIST": "127.0.0.1/32",
 }
 
 func withBase(overrides map[string]string) map[string]string {
@@ -64,6 +68,18 @@ func TestLoadRejectsBadValues(t *testing.T) {
 			vars:     map[string]string{},
 			variable: "VITTS_DATABASE_URL",
 		},
+		"short admin key": {
+			vars:     withBase(map[string]string{"VITTS_ADMIN_KEY": "too-short"}),
+			variable: "VITTS_ADMIN_KEY",
+		},
+		"empty admin allowlist": {
+			vars:     withBase(map[string]string{"VITTS_ADMIN_IP_ALLOWLIST": ""}),
+			variable: "VITTS_ADMIN_IP_ALLOWLIST",
+		},
+		"unparseable admin allowlist": {
+			vars:     withBase(map[string]string{"VITTS_ADMIN_IP_ALLOWLIST": "not-an-ip"}),
+			variable: "VITTS_ADMIN_IP_ALLOWLIST",
+		},
 	}
 
 	for name, tc := range tests {
@@ -96,4 +112,19 @@ func TestLoadNormalisesLogLevelCase(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "debug", cfg.LogLevel)
+}
+
+func TestAdminAllowlistAcceptsCIDRsAndBareAddresses(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load(env(withBase(map[string]string{
+		"VITTS_ADMIN_IP_ALLOWLIST": "10.0.0.0/8, 127.0.0.1 ,::1",
+	})))
+
+	require.NoError(t, err)
+	require.Equal(t, []netip.Prefix{
+		netip.MustParsePrefix("10.0.0.0/8"),
+		netip.MustParsePrefix("127.0.0.1/32"),
+		netip.MustParsePrefix("::1/128"),
+	}, cfg.AdminAllowlist)
 }

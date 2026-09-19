@@ -21,7 +21,8 @@ func newRouter(t *testing.T) (http.Handler, *gatewayhttp.Readiness, *strings.Bui
 
 	logs := &strings.Builder{}
 	readiness := gatewayhttp.NewReadiness()
-	return gatewayhttp.Router(zerolog.New(logs), readiness), readiness, logs
+	handler := gatewayhttp.Router(gatewayhttp.Deps{Logger: zerolog.New(logs), Readiness: readiness})
+	return handler, readiness, logs
 }
 
 func do(t *testing.T, handler http.Handler, req *http.Request) *httptest.ResponseRecorder {

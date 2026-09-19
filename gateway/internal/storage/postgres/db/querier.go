@@ -12,6 +12,7 @@ import (
 
 type Querier interface {
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (ApiKey, error)
+	CreateAuditEntry(ctx context.Context, arg CreateAuditEntryParams) error
 	CreateTenant(ctx context.Context, arg CreateTenantParams) (Tenant, error)
 	// API key lookup. The secret is never stored: callers hash it and look up by digest,
 	// and the comparison happens on the hash (.claude/rules/security.md).

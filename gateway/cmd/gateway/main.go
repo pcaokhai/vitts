@@ -24,6 +24,7 @@ import (
 	gatewayhttp "github.com/pcaokhai/vitts/gateway/internal/http"
 	"github.com/pcaokhai/vitts/gateway/internal/storage/postgres"
 	"github.com/pcaokhai/vitts/gateway/internal/telemetry"
+	"github.com/pcaokhai/vitts/gateway/internal/tenants"
 	"github.com/pcaokhai/vitts/gateway/migrations"
 )
 
@@ -91,8 +92,13 @@ func run() error {
 	readiness.Register("postgres", pool.Ready)
 
 	server := &stdhttp.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           gatewayhttp.Router(logger, readiness),
+		Addr: cfg.HTTPAddr,
+		Handler: gatewayhttp.Router(gatewayhttp.Deps{
+			Logger:    logger,
+			Readiness: readiness,
+			Admin:     gatewayhttp.NewAdminGuard(cfg.AdminKey, cfg.AdminAllowlist),
+			Tenants:   tenants.NewService(postgres.NewTenantRepository(pool)),
+		}),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
@@ -142,15 +148,17 @@ func run() error {
 
 // probe requests /healthz on the address this process would listen on.
 func probe() error {
-	cfg, err := config.LoadFromOS()
-	if err != nil {
-		return fmt.Errorf("configuration: %w", err)
+	// Deliberately not the full config: a health probe must keep working even when the
+	// serving configuration is incomplete, so it reads only the address it must reach.
+	addr := os.Getenv("VITTS_HTTP_ADDR")
+	if addr == "" {
+		addr = ":8080"
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), healthcheckTimeout)
 	defer cancel()
 
-	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodGet, healthURL(cfg.HTTPAddr), nil)
+	req, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodGet, healthURL(addr), nil)
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
@@ -193,12 +201,14 @@ func cutLast(s, sep string) (before, after string, found bool) {
 // (docs/13-runbook.md); the serving process never migrates on startup, so several
 // replicas can roll without racing each other over the schema.
 func runMigrations() error {
-	cfg, err := config.LoadFromOS()
-	if err != nil {
-		return fmt.Errorf("configuration: %w", err)
+	// Only the database URL: a migrations job has no business holding the admin key or
+	// any other serving credential.
+	url := os.Getenv("VITTS_DATABASE_URL")
+	if url == "" {
+		return errors.New("VITTS_DATABASE_URL is required")
 	}
 
-	sqlDB, err := sql.Open("pgx", cfg.DatabaseURL)
+	sqlDB, err := sql.Open("pgx", url)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}

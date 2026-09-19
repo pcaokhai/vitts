@@ -22,7 +22,10 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 |----|----------|------|-----------------------|----------|------|--------|----|
 | T-01 | US-01 | Frames ordered, last flag | seq 0..n, last=true once; rate/duration ±1%; invalid input → INVALID_ARGUMENT; busy → RESOURCE_EXHAUSTED | `worker/tests/test_stream.py` | unit | done (0.4) | yes |
 | T-02 | US-01 | Cancel stops inference | cancel → generator closed, slot free ≤ 200 ms | `worker/tests/test_cancel.py` | unit + `-m model` | done (0.4) | yes |
-| T-03 | US-05 | Auth | valid/revoked/suspended/no-scope → 200/401/401/403 | `gateway/internal/auth/*_test.go`, `http/auth_integration_test.go` | unit+int | proposed M1 | yes |
+| T-03 | US-05 | Auth | valid/revoked/suspended/no-scope → 200/401/401/403; lookup outage → 500, not 401 | `gateway/internal/auth/*_test.go`, `http/auth_test.go`, `http/auth_integration_test.go` | unit+int | done (1.3) | yes |
+| T-35 | US-05 | Tenant creation is atomic | tenant, first key and audit row all commit or none do; secret returned once | `http/auth_integration_test.go` | int | done (1.3) | yes |
+| T-36 | NFR-07 | Admin needs key and network | wrong key, wrong network, or spoofed `X-Forwarded-For` → 401; empty allowlist denies all | `http/auth_test.go` | unit | done (1.3) | yes |
+| T-37 | NFR-07 | Admin config fails closed | short `VITTS_ADMIN_KEY` or empty allowlist → process does not boot | `internal/config/config_test.go` | unit | done (1.3) | yes |
 | T-04 | US-08 | Validation | >3000 chars → 413; unknown voice → 422; bad JSON → 400 problem+json | `http/synth_test.go` | int | proposed M1 | yes |
 | T-05 | US-06 | Limiter atomic | 100 concurrent → exactly `limit` succeed | `ratelimit/lua_test.go` (miniredis) | unit | proposed M1 | yes |
 | T-06 | US-07 | Quota | at limit×1.05 → 402; reconcile fixes drift | `quota/*_test.go` | int | proposed M1 | yes |

@@ -17,3 +17,7 @@ select * from plans order by id;
 
 -- name: GetPlan :one
 select * from plans where id = $1;
+
+-- name: CreateAuditEntry :exec
+insert into audit_log (id, actor, action, target, detail)
+values ($1, $2, $3, $4, $5);

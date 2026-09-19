@@ -66,5 +66,9 @@ func (p *Pool) Ready(ctx context.Context) error {
 	return nil
 }
 
+// Raw exposes the underlying pool for statements whose sqlc queries belong to a later
+// task, such as test fixtures. Production code uses Queries.
+func (p *Pool) Raw() *pgxpool.Pool { return p.pool }
+
 // Close releases every connection. Safe to call once, at shutdown.
 func (p *Pool) Close() { p.pool.Close() }
