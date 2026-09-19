@@ -86,6 +86,15 @@ func (p *PlanLimits) CharsPerMonth(ctx context.Context, planID string) (int64, e
 	return plan.CharsPerMonth, nil
 }
 
+// MaxConcurrentStreams returns the plan's stream cap.
+func (p *PlanLimits) MaxConcurrentStreams(ctx context.Context, planID string) (int32, error) {
+	plan, err := p.pool.Queries.GetPlan(ctx, planID)
+	if err != nil {
+		return 0, fmt.Errorf("get plan %q: %w", planID, err)
+	}
+	return plan.MaxConcurrentStreams, nil
+}
+
 // ReqPerMinute returns the plan's request rate.
 func (p *PlanLimits) ReqPerMinute(ctx context.Context, planID string) (int32, error) {
 	p.mu.RLock()

@@ -35,6 +35,7 @@ import (
 	"github.com/pcaokhai/vitts/gateway/internal/synth"
 	"github.com/pcaokhai/vitts/gateway/internal/telemetry"
 	"github.com/pcaokhai/vitts/gateway/internal/tenants"
+	"github.com/pcaokhai/vitts/gateway/internal/usage"
 	"github.com/pcaokhai/vitts/gateway/internal/voices"
 	"github.com/pcaokhai/vitts/gateway/migrations"
 )
@@ -148,15 +149,20 @@ func run() error {
 		s3.Open(cfg.S3),
 		postgres.NewCacheCatalogue(pool),
 	)
+	meter := usage.New(postgres.NewUsageWriter(pool), logger)
+	meter.Start()
+	defer meter.Stop()
+
 	synthesizer := synth.NewService(
 		synth.NewQuotaAdapter(quotas),
 		cacheManager,
 		dispatch.NewDispatcher(workers),
 		catalogue,
 		planLimits,
-		synth.NopMeter{},
+		synth.NewMeterAdapter(meter),
 		logger,
 	)
+	leases := synth.NewLeaseAdapter(limiter)
 
 	// The catalogue follows the fleet: a deploy that changes the model's voices must
 	// show up without a migration (US-13).
@@ -181,6 +187,11 @@ func run() error {
 				{
 					Method: stdhttp.MethodPost, Pattern: "/synthesize",
 					Scope: auth.ScopeSynth, Handler: gatewayhttp.Synthesize(synthesizer),
+				},
+				{
+					Method: stdhttp.MethodPost, Pattern: "/synthesize/stream",
+					Scope:   auth.ScopeSynth,
+					Handler: gatewayhttp.SynthesizeStream(synthesizer, leases, planLimits),
 				},
 				{
 					Method: stdhttp.MethodGet, Pattern: "/voices",

@@ -109,24 +109,13 @@ func (s *Service) Synthesize(ctx context.Context, req Request, planID string) (R
 		return Result{}, err
 	}
 
-	voice, err := s.catalogue.Resolve(ctx, &req.TenantID, req.VoiceID)
+	voice, err := s.resolveVoice(ctx, req)
 	if err != nil {
-		if errors.Is(err, voices.ErrUnknown) {
-			return Result{}, fmt.Errorf("%w: %s", ErrUnknownVoice, req.VoiceID)
-		}
-		return Result{}, fmt.Errorf("resolve voice: %w", err)
+		return Result{}, err
 	}
 
-	allowance, err := s.plans.CharsPerMonth(ctx, planID)
-	if err != nil {
-		return Result{}, fmt.Errorf("read plan allowance: %w", err)
-	}
-	decision, err := s.quota.Check(ctx, req.TenantID, allowance, req.Chars())
-	if err != nil {
-		return Result{}, fmt.Errorf("check quota: %w", err)
-	}
-	if !decision.Allowed {
-		return Result{}, fmt.Errorf("%w: used %d of %d", ErrQuotaExceeded, decision.Used, allowance)
+	if err := s.checkQuota(ctx, req, planID); err != nil {
+		return Result{}, err
 	}
 
 	key := cache.Derive(cache.Input{
@@ -266,6 +255,56 @@ func (s *Service) fromWorker(ctx context.Context, req Request, key cache.Key, vo
 		Format: req.Format, CacheHit: false, CharsBilled: req.Chars(),
 		VoiceID: voice.ID, ModelVersion: voice.ModelVersion,
 	}, nil
+}
+
+// resolveVoice turns a requested voice id into a catalogue entry.
+func (s *Service) resolveVoice(ctx context.Context, req Request) (voices.Voice, error) {
+	voice, err := s.catalogue.Resolve(ctx, &req.TenantID, req.VoiceID)
+	if err != nil {
+		if errors.Is(err, voices.ErrUnknown) {
+			return voices.Voice{}, fmt.Errorf("%w: %s", ErrUnknownVoice, req.VoiceID)
+		}
+		return voices.Voice{}, fmt.Errorf("resolve voice: %w", err)
+	}
+	return voice, nil
+}
+
+// checkQuota refuses a request that would take the tenant past its allowance. It
+// consumes nothing: the counter moves only after delivery (US-07 acceptance criterion 2).
+func (s *Service) checkQuota(ctx context.Context, req Request, planID string) error {
+	allowance, err := s.plans.CharsPerMonth(ctx, planID)
+	if err != nil {
+		return fmt.Errorf("read plan allowance: %w", err)
+	}
+
+	decision, err := s.quota.Check(ctx, req.TenantID, allowance, req.Chars())
+	if err != nil {
+		return fmt.Errorf("check quota: %w", err)
+	}
+	if !decision.Allowed {
+		return fmt.Errorf("%w: used %d of %d", ErrQuotaExceeded, decision.Used, allowance)
+	}
+	return nil
+}
+
+// meterStream records a stream's quota and usage. A cancelled stream bills the audio it
+// delivered rather than the text it was asked for (ADR-010).
+func (s *Service) meterStream(
+	ctx context.Context, req Request, key cache.Key, voice voices.Voice,
+	result StreamResult, status string,
+) {
+	if status == "ok" || status == "client_cancelled" {
+		if err := s.quota.Record(ctx, req.TenantID, result.CharsBilled); err != nil {
+			s.logger.Error().Err(err).Str("request_id", req.RequestID).Msg("quota not recorded")
+		}
+	}
+
+	s.meter.Record(ctx, Usage{
+		TenantID: req.TenantID, KeyID: req.KeyID, RequestID: req.RequestID,
+		VoiceID: voice.ID, CacheKey: key.Bytes(), Mode: "stream",
+		Chars: result.CharsBilled, DurationMS: result.DurationMS, TTFAMS: result.TTFAMS,
+		Cached: result.CacheHit, Status: status,
+	})
 }
 
 func (s *Service) bill(ctx context.Context, req Request, key cache.Key, voice voices.Voice, durationMS int32, cached bool, status string) {

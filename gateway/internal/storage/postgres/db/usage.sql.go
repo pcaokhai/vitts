@@ -12,6 +12,49 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const insertSynthRequest = `-- name: InsertSynthRequest :exec
+insert into synth_requests (
+    id, tenant_id, api_key_id, voice_id, cache_key, mode, chars,
+    duration_ms, ttfa_ms, cached, status, error_code, created_at
+) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+on conflict (id, created_at) do nothing
+`
+
+type InsertSynthRequestParams struct {
+	ID         uuid.UUID
+	TenantID   uuid.UUID
+	ApiKeyID   uuid.UUID
+	VoiceID    string
+	CacheKey   []byte
+	Mode       string
+	Chars      int32
+	DurationMs *int32
+	TtfaMs     *int32
+	Cached     bool
+	Status     string
+	ErrorCode  *string
+	CreatedAt  pgtype.Timestamptz
+}
+
+func (q *Queries) InsertSynthRequest(ctx context.Context, arg InsertSynthRequestParams) error {
+	_, err := q.db.Exec(ctx, insertSynthRequest,
+		arg.ID,
+		arg.TenantID,
+		arg.ApiKeyID,
+		arg.VoiceID,
+		arg.CacheKey,
+		arg.Mode,
+		arg.Chars,
+		arg.DurationMs,
+		arg.TtfaMs,
+		arg.Cached,
+		arg.Status,
+		arg.ErrorCode,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const sumCharsByTenantSince = `-- name: SumCharsByTenantSince :many
 
 select tenant_id, sum(chars)::bigint as chars

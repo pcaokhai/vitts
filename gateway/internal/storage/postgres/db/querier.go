@@ -22,6 +22,7 @@ type Querier interface {
 	// Tenant and plan reads. Every tenant-owned query filters on tenant_id; a tenant that is
 	// not active must not be served (US-05).
 	GetTenant(ctx context.Context, id uuid.UUID) (GetTenantRow, error)
+	InsertSynthRequest(ctx context.Context, arg InsertSynthRequestParams) error
 	ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ApiKey, error)
 	ListPlans(ctx context.Context) ([]Plan, error)
 	// Voice catalogue. Public presets have tenant_id null; tenant-owned voices are visible
