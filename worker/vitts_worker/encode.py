@@ -1,15 +1,16 @@
-"""PCM conversion and resampling for the streaming path.
+"""PCM conversion, resampling, and container encoding.
 
-Container formats (mp3, ogg_opus) belong to `Merge` in task 2.2; this module only has to
-turn the model's float32 frames into the little-endian int16 the proto specifies, at the
-sample rate the caller asked for.
+The streaming path needs only PCM16 at the requested rate; `Merge` additionally wraps
+concatenated segments in a container (US-04).
 """
 
 from __future__ import annotations
 
+import io
 from math import gcd
 
 import numpy as np
+import soundfile as sf
 from scipy.signal import resample_poly
 
 NATIVE_SAMPLE_RATE = 48_000
@@ -69,3 +70,68 @@ class StreamResampler:
         self._emitted += len(out)
         self._context = buffered[-_CONTEXT_SAMPLES:]
         return np.asarray(out, dtype=np.float32)
+
+
+# Container formats `Merge` can produce, mapped to (libsndfile format, subtype).
+#
+# libsndfile carries LAME and Opus, so the worker needs no external encoder. Both are
+# variable-bitrate, so US-04's "MP3 at 64 kbps, Opus at 32 kbps" is approached through a
+# quality setting rather than set exactly - see MERGE_QUALITY below.
+CONTAINERS = {
+    "wav": ("WAV", "PCM_16"),
+    "mp3": ("MP3", "MPEG_LAYER_III"),
+    "ogg_opus": ("OGG", "OPUS"),
+}
+
+# libsndfile takes a 0..1 compression level, not a bitrate: 0 is best quality and largest,
+# 1 is smallest, and both codecs are variable-bitrate. US-04 asks for "MP3 at 64 kbps,
+# Opus at 32 kbps", which these values approach rather than pin - measured on a
+# speech-shaped signal, 0.55 gives ~65 kbps MP3 and 0.9 gives ~34 kbps Opus. Exact
+# constant bitrates would need an encoder that exposes one; the sweep behind these
+# numbers is in docs/plans/2.1-2.2.md.
+MERGE_QUALITY = {
+    "mp3": 0.55,
+    "ogg_opus": 0.90,
+}
+
+
+def silence(seconds: float, sample_rate: int) -> np.ndarray:
+    """A gap between merged segments, so sentences do not run together (US-04)."""
+    return np.zeros(max(0, int(seconds * sample_rate)), dtype=np.float32)
+
+
+def from_pcm16(raw: bytes) -> np.ndarray:
+    """Little-endian int16 bytes back to float32 in [-1, 1]."""
+    return np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+
+
+def encode(samples: np.ndarray, sample_rate: int, container: str) -> bytes:
+    """Encode mono float32 audio into a container.
+
+    Raises ValueError for an unknown container: a caller asking for a format we cannot
+    produce must be told, not handed a mislabelled file.
+    """
+    if container not in CONTAINERS:
+        raise ValueError(f"unsupported format {container!r}; expected one of {sorted(CONTAINERS)}")
+
+    fmt, subtype = CONTAINERS[container]
+    buffer = io.BytesIO()
+    with sf.SoundFile(
+        buffer,
+        mode="w",
+        samplerate=sample_rate,
+        channels=1,
+        format=fmt,
+        subtype=subtype,
+        compression_level=MERGE_QUALITY.get(container),
+    ) as handle:
+        handle.write(samples.reshape(-1))
+
+    return buffer.getvalue()
+
+
+def duration_ms(samples: np.ndarray, sample_rate: int) -> int:
+    """Length of `samples` in milliseconds."""
+    if sample_rate <= 0:
+        return 0
+    return round(samples.reshape(-1).shape[0] * 1000 / sample_rate)

@@ -38,7 +38,7 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-13 | US-12 | Overload rejects fast | k6 3× → p95 503 latency < 50 ms; stream still served | `scripts/loadtest/spike.js` | load | proposed M3 | release |
 | T-14 | US-09 | TTFA SLO | k6 80% util → p95 ≤ 300 ms | `scripts/loadtest/steady.js` | load | proposed M3 | release |
 | T-15 | US-14 | Idempotency | same key+body → same job; different body → 409 | `jobs/idempotency_test.go` | int | proposed M2 | yes |
-| T-16 | US-04 | Merge duration | sum + gaps ± 50 ms | `worker/tests/test_merge.py` | unit | proposed M2 | yes |
+| T-16 | US-04 | Merge duration | sum + gaps ± 50 ms; measured +0 ms on 6 real segments | `worker/tests/test_segment_merge.py`, live stack | unit | done (2.2) | yes |
 | T-17 | ADR-009 | Contract drift | regenerate → no diff | `make generate && git diff --exit-code` | contract | done (0.2) | yes |
 | T-18 | US-17 | Key revoke immediate | revoke → next call 401 | `http/keys_test.go` | int | proposed M2 | yes |
 | T-19 | FL-07 | Scheduled jobs single-run | two replicas → lock → one execution | `sched/lock_test.go` | int | proposed M3 | yes |
@@ -83,6 +83,11 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-64 | US-01 | Slot released after cancel | worker frees its inference slot ≤ 200 ms after a client cancel | measured against the live worker | manual | done (1.11) | no |
 | T-65 | ADR-009 | Contract is served | `/openapi.json` and `/openapi.yaml` serve the embedded contract without a credential | `internal/http/openapi_test.go` | unit | done (1.14) | yes |
 | T-66 | ADR-009 | No undeclared error codes | every `Problem.code` the gateway emits is in the contract's enum | `internal/http/openapi_test.go` | unit | done (1.14) | yes |
+| T-67 | US-03 | Segmentation is lossless | concatenated segments keep every non-whitespace character | `worker/tests/test_segment_merge.py` | unit | done (2.2) | yes |
+| T-68 | US-03 | Segmentation is fast | 100,000 characters segment in under 2 s | `worker/tests/test_segment_merge.py` | unit | done (2.2) | yes |
+| T-69 | US-03 | Segment needs no weights | `Segment` answers before the model has loaded | `worker/tests/test_server.py` | unit | done (2.2) | yes |
+| T-70 | US-04 | Containers decode | wav, mp3 and ogg_opus all decode back at the requested rate; 59/31 kbps measured | `worker/tests/test_segment_merge.py`, live stack | unit | done (2.2) | yes |
+| T-71 | US-04 | Missing segment is named | absent object → FAILED_PRECONDITION carrying the key | live stack, `worker/tests/test_server.py` | unit | done (2.2) | yes |
 | T-26 | US-02 | Stack smoke | `make up` → worker healthy; one streamed synthesis, frames ordered, `last=true` present | `scripts/smoke.sh` | e2e | done (0.6, gateway leg 1.1) | no |
 | T-25 | US-01 | First frame latency | TTFA ≤ 150 ms for a 21-char input on the bench machine | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.4) | no |
 | T-24 | NFR-06 | Worker config validation | missing revision / partial `VITTS_S3_*` → exit non-zero with a named variable | `worker/tests/test_config.py` | unit | done (0.3) | yes |

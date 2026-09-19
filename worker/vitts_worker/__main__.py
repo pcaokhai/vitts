@@ -14,6 +14,7 @@ import structlog
 
 from .config import Config, ConfigError
 from .engine import Engine
+from .objects import Store
 from .server import serve
 
 log = structlog.get_logger(__name__)
@@ -30,7 +31,10 @@ async def main() -> int:
         return 2
 
     engine = Engine(cfg)
-    server, _port = await serve(engine, cfg, cfg.grpc_addr)
+    # Object storage is only needed by Merge; a worker without it still synthesizes and
+    # reports the gap plainly if a merge is attempted.
+    store = Store(cfg.s3) if cfg.s3 is not None else None
+    server, _port = await serve(engine, cfg, cfg.grpc_addr, store)
 
     # Loading blocks on ONNX session creation and a warm-up utterance; keep it off the
     # event loop so Health stays answerable throughout.

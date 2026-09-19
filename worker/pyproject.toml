@@ -49,7 +49,7 @@ strict = true
 exclude = ["vitts_worker/gen/"]
 
 [[tool.mypy.overrides]]
-module = ["zerotts.*"]
+module = ["zerotts.*", "soundfile"]
 ignore_missing_imports = true
 follow_imports = "skip"
 

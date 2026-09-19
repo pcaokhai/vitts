@@ -41,11 +41,33 @@ async def test_health_answers_while_the_model_is_still_loading(
     assert reply.slots_busy == 0
 
 
-async def test_unimplemented_rpcs_fail_fast_with_a_clear_status(
+async def test_segment_works_without_loaded_weights(
     stub: worker_pb2_grpc.WorkerStub,
 ) -> None:
-    with pytest.raises(grpc.aio.AioRpcError) as err:
-        await stub.Segment(worker_pb2.SegmentRequest(text="xin chào"))
+    """Segmentation is text processing: it must not wait on the model to load."""
+    reply = await stub.Segment(
+        worker_pb2.SegmentRequest(text="Xin chào. Tạm biệt.", normalize=False)
+    )
 
-    assert err.value.code() is grpc.StatusCode.UNIMPLEMENTED
-    assert "task 2.2" in (err.value.details() or "")
+    assert list(reply.segments)
+    assert "".join(reply.segments).replace(" ", "") == "Xinchào.Tạmbiệt."
+
+
+async def test_merge_without_object_storage_says_so(
+    stub: worker_pb2_grpc.WorkerStub,
+) -> None:
+    """A worker with no S3 configured must name the gap, not fail obscurely."""
+    with pytest.raises(grpc.aio.AioRpcError) as err:
+        await stub.Merge(
+            worker_pb2.MergeRequest(s3_keys=["a.pcm"], output_s3_key="out.wav", format="wav")
+        )
+
+    assert err.value.code() is grpc.StatusCode.FAILED_PRECONDITION
+    assert "object storage" in (err.value.details() or "")
+
+
+async def test_segment_rejects_empty_text(stub: worker_pb2_grpc.WorkerStub) -> None:
+    with pytest.raises(grpc.aio.AioRpcError) as err:
+        await stub.Segment(worker_pb2.SegmentRequest(text="   "))
+
+    assert err.value.code() is grpc.StatusCode.INVALID_ARGUMENT
