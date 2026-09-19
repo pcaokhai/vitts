@@ -95,6 +95,15 @@ func (p *PlanLimits) MaxConcurrentStreams(ctx context.Context, planID string) (i
 	return plan.MaxConcurrentStreams, nil
 }
 
+// MaxJobChars returns the largest single job the plan allows.
+func (p *PlanLimits) MaxJobChars(ctx context.Context, planID string) (int32, error) {
+	plan, err := p.pool.Queries.GetPlan(ctx, planID)
+	if err != nil {
+		return 0, fmt.Errorf("get plan %q: %w", planID, err)
+	}
+	return plan.MaxJobChars, nil
+}
+
 // ReqPerMinute returns the plan's request rate.
 func (p *PlanLimits) ReqPerMinute(ctx context.Context, planID string) (int32, error) {
 	p.mu.RLock()

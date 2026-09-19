@@ -26,6 +26,7 @@ import (
 	"github.com/pcaokhai/vitts/gateway/internal/config"
 	"github.com/pcaokhai/vitts/gateway/internal/dispatch"
 	gatewayhttp "github.com/pcaokhai/vitts/gateway/internal/http"
+	"github.com/pcaokhai/vitts/gateway/internal/jobs"
 	"github.com/pcaokhai/vitts/gateway/internal/plans"
 	"github.com/pcaokhai/vitts/gateway/internal/quota"
 	"github.com/pcaokhai/vitts/gateway/internal/ratelimit"
@@ -164,6 +165,16 @@ func run() error {
 	)
 	leases := synth.NewLeaseAdapter(limiter)
 
+	objects := s3.Open(cfg.S3)
+	jobTexts := s3.NewJobTexts(objects)
+	jobQueue := redisadapter.NewJobQueue(cacheClient)
+	if err := jobQueue.EnsureGroups(ctx); err != nil {
+		return fmt.Errorf("job queue: %w", err)
+	}
+	jobService := jobs.NewService(
+		postgres.NewJobRepository(pool), jobQueue, jobTexts, jobs.NewSSRFGuard(), logger,
+	)
+
 	// The catalogue follows the fleet: a deploy that changes the model's voices must
 	// show up without a migration (US-13).
 	go syncVoices(ctx, catalogue, logger)
@@ -195,12 +206,28 @@ func run() error {
 				},
 				{
 					Method: stdhttp.MethodGet, Pattern: "/synthesize/ws",
-					Scope: auth.ScopeSynth,
+					Scope:   auth.ScopeSynth,
 					Handler: gatewayhttp.SynthesizeWS(synthesizer, leases, planLimits),
 				},
 				{
 					Method: stdhttp.MethodGet, Pattern: "/voices",
 					Scope: auth.ScopeSynth, Handler: gatewayhttp.ListVoices(catalogue),
+				},
+				{
+					Method: stdhttp.MethodPost, Pattern: "/jobs",
+					Scope: auth.ScopeJobs, Handler: gatewayhttp.CreateJob(jobService, planLimits),
+				},
+				{
+					Method: stdhttp.MethodGet, Pattern: "/jobs",
+					Scope: auth.ScopeJobs, Handler: gatewayhttp.ListJobs(jobService),
+				},
+				{
+					Method: stdhttp.MethodGet, Pattern: "/jobs/{jobId}",
+					Scope: auth.ScopeJobs, Handler: gatewayhttp.GetJob(jobService),
+				},
+				{
+					Method: stdhttp.MethodDelete, Pattern: "/jobs/{jobId}",
+					Scope: auth.ScopeJobs, Handler: gatewayhttp.CancelJob(jobService),
 				},
 			},
 		}),

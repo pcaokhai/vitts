@@ -42,6 +42,43 @@ type AuditLog struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type Job struct {
+	ID              uuid.UUID
+	TenantID        uuid.UUID
+	ApiKeyID        uuid.UUID
+	IdempotencyKey  string
+	Status          string
+	VoiceID         string
+	Format          string
+	SampleRate      int32
+	Normalize       bool
+	Params          []byte
+	TotalChars      int32
+	SegmentsTotal   *int32
+	SegmentsDone    int32
+	OutputS3Key     *string
+	DurationMs      *int32
+	WebhookUrl      *string
+	WebhookAttempts int32
+	Metadata        []byte
+	Error           *string
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	CompletedAt     pgtype.Timestamptz
+}
+
+type JobSegment struct {
+	ID        uuid.UUID
+	JobID     uuid.UUID
+	Seq       int32
+	TextHash  []byte
+	Chars     int32
+	Status    string
+	Attempts  int32
+	S3Key     *string
+	LastError *string
+}
+
 type Plan struct {
 	ID                   string
 	CharsPerMonth        int64
@@ -76,6 +113,15 @@ type Tenant struct {
 	Status    string
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
+}
+
+type UsageDaily struct {
+	TenantID  uuid.UUID
+	Day       pgtype.Date
+	Chars     int64
+	AudioMs   int64
+	Requests  int64
+	CacheHits int64
 }
 
 type Voice struct {

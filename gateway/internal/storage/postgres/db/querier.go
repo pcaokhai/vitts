@@ -11,31 +11,49 @@ import (
 )
 
 type Querier interface {
+	CancelJob(ctx context.Context, arg CancelJobParams) (int64, error)
+	ClaimJobSegment(ctx context.Context, arg ClaimJobSegmentParams) (int64, error)
+	CompleteJob(ctx context.Context, arg CompleteJobParams) (int64, error)
+	CompleteJobSegment(ctx context.Context, arg CompleteJobSegmentParams) (int64, error)
+	CountUnfinishedSegments(ctx context.Context, jobID uuid.UUID) (int64, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (ApiKey, error)
 	CreateAuditEntry(ctx context.Context, arg CreateAuditEntryParams) error
+	// Jobs and their segments. Every tenant-owned read filters on tenant_id: another
+	// tenant's job is a 404, not a 403 (docs/07-permissions.md).
+	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
+	CreateJobSegment(ctx context.Context, arg CreateJobSegmentParams) error
 	CreateTenant(ctx context.Context, arg CreateTenantParams) (Tenant, error)
+	FailJob(ctx context.Context, arg FailJobParams) (int64, error)
+	FailJobSegment(ctx context.Context, arg FailJobSegmentParams) (int64, error)
 	// API key lookup. The secret is never stored: callers hash it and look up by digest,
 	// and the comparison happens on the hash (.claude/rules/security.md).
 	GetAPIKeyByHash(ctx context.Context, keyHash []byte) (GetAPIKeyByHashRow, error)
 	GetCacheEntry(ctx context.Context, cacheKey []byte) (AudioCache, error)
+	GetJob(ctx context.Context, arg GetJobParams) (Job, error)
+	GetJobByIdempotencyKey(ctx context.Context, arg GetJobByIdempotencyKeyParams) (Job, error)
 	GetPlan(ctx context.Context, id string) (Plan, error)
 	// Tenant and plan reads. Every tenant-owned query filters on tenant_id; a tenant that is
 	// not active must not be served (US-05).
 	GetTenant(ctx context.Context, id uuid.UUID) (GetTenantRow, error)
 	InsertSynthRequest(ctx context.Context, arg InsertSynthRequestParams) error
 	ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ApiKey, error)
+	ListJobSegments(ctx context.Context, jobID uuid.UUID) ([]JobSegment, error)
+	ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, error)
 	ListPlans(ctx context.Context) ([]Plan, error)
 	// Voice catalogue. Public presets have tenant_id null; tenant-owned voices are visible
 	// only to their owner (docs/07-permissions.md, US-13 acceptance criterion 2).
 	ListPublicVoices(ctx context.Context) ([]Voice, error)
 	ListVoicesForTenant(ctx context.Context, tenantID *uuid.UUID) ([]Voice, error)
 	RevokeAPIKey(ctx context.Context, arg RevokeAPIKeyParams) (int64, error)
+	SetJobSegmentsTotal(ctx context.Context, arg SetJobSegmentsTotalParams) (int64, error)
+	StuckJobs(ctx context.Context, arg StuckJobsParams) ([]Job, error)
 	// Usage reads for quota reconciliation. synth_requests is the system of record; the
 	// usage_daily rollup arrives with migration 0002 (task 2.1) and can replace this scan
 	// once it exists.
 	SumCharsByTenantSince(ctx context.Context, arg SumCharsByTenantSinceParams) ([]SumCharsByTenantSinceRow, error)
 	TouchAPIKeyLastUsed(ctx context.Context, id uuid.UUID) error
 	TouchCacheEntry(ctx context.Context, cacheKey []byte) error
+	TransitionJob(ctx context.Context, arg TransitionJobParams) (int64, error)
 	// Audio cache catalogue. Redis is the fast index; these rows are what survives a Redis
 	// flush and what the eviction job scans (FL-07, task 2.8).
 	UpsertCacheEntry(ctx context.Context, arg UpsertCacheEntryParams) error
