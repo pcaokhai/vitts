@@ -33,16 +33,20 @@ services:
       # operator's own network.
       VITTS_ADMIN_IP_ALLOWLIST: ${VITTS_ADMIN_IP_ALLOWLIST:-172.16.0.0/12,192.168.0.0/16,127.0.0.1/32}
       VITTS_DATABASE_URL: postgres://vitts:vitts@postgres:5432/vitts?sslmode=disable
+      VITTS_WORKER_ADDRS: ${VITTS_WORKER_ADDRS:-worker:50051}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     ports:
       - "${VITTS_GATEWAY_PORT:-8080}:8080"
     healthcheck:
-      # Liveness only. /readyz gains Postgres, Redis and the worker pool in 1.2/1.4/1.6,
-      # and the image has no shell, so the binary's own endpoint is probed over TCP.
+      # Liveness only, never readiness: /readyz is 503 until a worker finishes loading
+      # weights, and a container that is alive but not ready must not be restarted.
+      # The image has no shell, so the binary probes its own endpoint.
       test: ["CMD", "/gateway", "-healthcheck"]
       interval: 5s
       timeout: 3s
       retries: 10
+    # Deliberately not depends_on worker: the worker takes minutes to load weights on a
+    # cold volume, and FL-06 says the gateway boots and reports itself unready instead.
     depends_on:
       migrate:
         condition: service_completed_successfully

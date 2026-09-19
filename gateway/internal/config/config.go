@@ -33,6 +33,7 @@ type Config struct {
 	DatabaseMaxConns int32
 	AdminKey         string
 	AdminAllowlist   []netip.Prefix
+	WorkerAddrs      []string
 	ShutdownTimeout  time.Duration
 }
 
@@ -71,6 +72,7 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		DatabaseURL:      value(lookup, "VITTS_DATABASE_URL", ""),
 		DatabaseMaxConns: defaultDatabaseMaxConns,
 		AdminKey:         value(lookup, "VITTS_ADMIN_KEY", ""),
+		WorkerAddrs:      splitList(value(lookup, "VITTS_WORKER_ADDRS", "")),
 		ShutdownTimeout:  defaultShutdownTimeout,
 	}
 
@@ -113,6 +115,12 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, &Error{
 			Variable: "VITTS_ADMIN_IP_ALLOWLIST",
 			Reason:   "must list at least one CIDR; admin endpoints are never open",
+		}
+	}
+	if len(cfg.WorkerAddrs) == 0 {
+		return Config{}, &Error{
+			Variable: "VITTS_WORKER_ADDRS",
+			Reason:   "must list at least one worker address",
 		}
 	}
 	if cfg.OTLPEndpoint != "" {
@@ -164,4 +172,21 @@ func parsePrefixes(raw string) ([]netip.Prefix, error) {
 		prefixes = append(prefixes, netip.PrefixFrom(addr, addr.BitLen()))
 	}
 	return prefixes, nil
+}
+
+// splitList reads a comma-separated list, dropping empty entries so a trailing comma is
+// not a configuration error.
+func splitList(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if entry := strings.TrimSpace(part); entry != "" {
+			out = append(out, entry)
+		}
+	}
+	return out
 }

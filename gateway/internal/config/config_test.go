@@ -15,6 +15,7 @@ var baseEnv = map[string]string{
 	"VITTS_DATABASE_URL":       "postgres://vitts:vitts@localhost:5432/vitts?sslmode=disable",
 	"VITTS_ADMIN_KEY":          strings.Repeat("k", 32),
 	"VITTS_ADMIN_IP_ALLOWLIST": "127.0.0.1/32",
+	"VITTS_WORKER_ADDRS":       "worker:50051",
 }
 
 func withBase(overrides map[string]string) map[string]string {
@@ -76,6 +77,10 @@ func TestLoadRejectsBadValues(t *testing.T) {
 			vars:     withBase(map[string]string{"VITTS_ADMIN_IP_ALLOWLIST": ""}),
 			variable: "VITTS_ADMIN_IP_ALLOWLIST",
 		},
+		"missing worker addresses": {
+			vars:     withBase(map[string]string{"VITTS_WORKER_ADDRS": ""}),
+			variable: "VITTS_WORKER_ADDRS",
+		},
 		"unparseable admin allowlist": {
 			vars:     withBase(map[string]string{"VITTS_ADMIN_IP_ALLOWLIST": "not-an-ip"}),
 			variable: "VITTS_ADMIN_IP_ALLOWLIST",
@@ -127,4 +132,15 @@ func TestAdminAllowlistAcceptsCIDRsAndBareAddresses(t *testing.T) {
 		netip.MustParsePrefix("127.0.0.1/32"),
 		netip.MustParsePrefix("::1/128"),
 	}, cfg.AdminAllowlist)
+}
+
+func TestWorkerAddressesAreSplitAndTrimmed(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load(env(withBase(map[string]string{
+		"VITTS_WORKER_ADDRS": " w1:50051 , w2:50051, ",
+	})))
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"w1:50051", "w2:50051"}, cfg.WorkerAddrs)
 }

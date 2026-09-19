@@ -54,6 +54,10 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-32 | US-17 | Revoked key stops resolving | revoke → lookup by hash finds nothing; another tenant cannot revoke | `postgres_integration_test.go` | int | done (1.2) | yes |
 | T-33 | NFR-11 | Partition routing | row lands in its month's partition; a month with no partition errors | `postgres_integration_test.go` | int | done (1.2) | yes |
 | T-34 | FL-07 | Partition helper is idempotent | calling twice for one month yields the same partition | `postgres_integration_test.go` | int | done (1.2) | yes |
+| T-38 | FL-06 | Worker readiness gates /readyz | no ready worker → 503 naming workers; one ready → 200 | `internal/dispatch/pool_test.go` | unit | done (1.6) | yes |
+| T-39 | FL-06 | Circuit opens on 3 failures | 3 consecutive probe failures → ejected and unselectable | `internal/dispatch/pool_test.go` | unit | done (1.6) | yes |
+| T-40 | FL-06 | Circuit closes on recovery | a successful re-probe clears ejection; fleet survives one sick worker | `internal/dispatch/pool_test.go` | unit | done (1.6) | yes |
+| T-41 | FL-06 | Least-busy selection | more free slots wins; equal slots break on RTF; loading or busy is unselectable | `internal/dispatch/pool_test.go` | unit | done (1.6) | yes |
 | T-26 | US-02 | Stack smoke | `make up` → worker healthy; one streamed synthesis, frames ordered, `last=true` present | `scripts/smoke.sh` | e2e | done (0.6, gateway leg 1.1) | no |
 | T-25 | US-01 | First frame latency | TTFA ≤ 150 ms for a 21-char input on the bench machine | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.4) | no |
 | T-24 | NFR-06 | Worker config validation | missing revision / partial `VITTS_S3_*` → exit non-zero with a named variable | `worker/tests/test_config.py` | unit | done (0.3) | yes |

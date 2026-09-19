@@ -21,6 +21,7 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"github.com/pcaokhai/vitts/gateway/internal/config"
+	"github.com/pcaokhai/vitts/gateway/internal/dispatch"
 	gatewayhttp "github.com/pcaokhai/vitts/gateway/internal/http"
 	"github.com/pcaokhai/vitts/gateway/internal/storage/postgres"
 	"github.com/pcaokhai/vitts/gateway/internal/telemetry"
@@ -88,8 +89,20 @@ func run() error {
 	}
 	defer pool.Close()
 
+	workers, err := dispatch.NewPool(cfg.WorkerAddrs, logger, dispatch.Options{})
+	if err != nil {
+		return fmt.Errorf("worker pool: %w", err)
+	}
+	defer func() {
+		if err := workers.Close(); err != nil {
+			logger.Error().Err(err).Msg("worker pool shutdown incomplete")
+		}
+	}()
+	workers.Start(ctx)
+
 	readiness := gatewayhttp.NewReadiness()
 	readiness.Register("postgres", pool.Ready)
+	readiness.Register("workers", workers.Ready)
 
 	server := &stdhttp.Server{
 		Addr: cfg.HTTPAddr,
