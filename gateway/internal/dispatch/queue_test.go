@@ -3,9 +3,11 @@ package dispatch_test
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
 	"github.com/pcaokhai/vitts/gateway/internal/dispatch"
@@ -24,7 +26,7 @@ func dispatcherWith(t *testing.T, slots int32) (*dispatch.Dispatcher, *fakeworke
 	pool := startPool(t, servers...)
 	eventually(t, func() bool { return pool.Ready(context.Background()) == nil }, "pool never ready")
 
-	return dispatch.NewDispatcher(pool, nil), servers[0]
+	return dispatch.NewDispatcher(pool, nil, zerolog.New(io.Discard)), servers[0]
 }
 
 func TestReserveSucceedsWhenTheFleetHasCapacity(t *testing.T) {
@@ -182,7 +184,7 @@ func TestNoReadyWorkerIsOverloadNotAPanic(t *testing.T) {
 	servers := startWorkers(t, 1)
 	servers[0].SetHealth(&workerpb.HealthResponse{Ready: false})
 	pool := startPool(t, servers...)
-	d := dispatch.NewDispatcher(pool, nil)
+	d := dispatch.NewDispatcher(pool, nil, zerolog.New(io.Discard))
 	d.SetWaitForTest(func(dispatch.Class) time.Duration { return 10 * time.Millisecond })
 
 	_, err := d.Reserve(context.Background(), dispatch.ClassStream)
@@ -196,4 +198,62 @@ func TestClassNames(t *testing.T) {
 	require.Equal(t, "stream", dispatch.ClassStream.String())
 	require.Equal(t, "sync", dispatch.ClassSync.String())
 	require.Equal(t, "batch", dispatch.ClassBatch.String())
+}
+
+// ADR-007 calls for a bounded queue, and US-12 measures what the bound buys: once the
+// queue ahead of a caller cannot drain inside its class budget, the caller is refused in
+// microseconds rather than after waiting the budget out for the same answer.
+func TestAnOverloadedQueueRefusesImmediately(t *testing.T) {
+	t.Parallel()
+
+	d, _ := dispatcherWith(t, 1)
+	held, err := d.Reserve(context.Background(), dispatch.ClassStream)
+	require.NoError(t, err)
+	t.Cleanup(held.Release)
+
+	// Park callers until the dispatcher stops admitting them.
+	parked, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for range 4 {
+		go func() {
+			if reservation, err := d.Reserve(parked, dispatch.ClassStream); err == nil {
+				reservation.Release()
+			}
+		}()
+	}
+	require.Eventually(t, func() bool {
+		return d.Stats().Waiting[dispatch.ClassStream] > 0
+	}, 2*time.Second, 5*time.Millisecond, "nobody queued at all")
+
+	// Whatever the admitted depth is, the next caller must be told at once.
+	fastest := time.Hour
+	for range 5 {
+		started := time.Now()
+		_, err := d.Reserve(context.Background(), dispatch.ClassStream)
+		elapsed := time.Since(started)
+		if errors.Is(err, dispatch.ErrOverloaded) && elapsed < fastest {
+			fastest = elapsed
+		}
+	}
+
+	require.Less(t, fastest, 50*time.Millisecond,
+		"an overloaded dispatcher must refuse in microseconds, not after the 2 s budget")
+}
+
+// The rule must not make the dispatcher paranoid: while a slot is free, callers are
+// served rather than refused.
+func TestAvailableCapacityIsAlwaysAdmitted(t *testing.T) {
+	t.Parallel()
+
+	d, _ := dispatcherWith(t, 4)
+
+	var held []*dispatch.Reservation
+	for range 4 {
+		reservation, err := d.Reserve(context.Background(), dispatch.ClassStream)
+		require.NoError(t, err, "a free slot must never be refused")
+		held = append(held, reservation)
+	}
+	for _, r := range held {
+		r.Release()
+	}
 }

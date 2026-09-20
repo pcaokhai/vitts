@@ -140,7 +140,7 @@ func newHarness(t *testing.T) harness {
 	m := &recordingMeter{}
 
 	return harness{
-		service: synth.NewService(q, c, dispatch.NewDispatcher(pool, nil),
+		service: synth.NewService(q, c, dispatch.NewDispatcher(pool, nil, zerolog.New(io.Discard)),
 			fakeCatalogue{voice: voices.Voice{ID: "maichi", ModelVersion: "model-1", Enabled: true}},
 			fakePlans{allowance: 1_000_000}, m, zerolog.New(io.Discard)),
 		quota: q, cache: c, meter: m, worker: worker,
@@ -225,7 +225,7 @@ func TestUnknownVoiceIsRefusedBeforeAnyWork(t *testing.T) {
 	t.Parallel()
 
 	h := newHarness(t)
-	service := synth.NewService(h.quota, h.cache, dispatch.NewDispatcher(mustPool(t, h.worker), nil),
+	service := synth.NewService(h.quota, h.cache, dispatch.NewDispatcher(mustPool(t, h.worker), nil, zerolog.New(io.Discard)),
 		fakeCatalogue{err: voices.ErrUnknown}, fakePlans{allowance: 1000}, h.meter,
 		zerolog.New(io.Discard))
 

@@ -157,7 +157,7 @@ func run() error {
 	meter.Start()
 	defer meter.Stop()
 
-	dispatcher := dispatch.NewDispatcher(workers, metrics)
+	dispatcher := dispatch.NewDispatcher(workers, metrics, logger)
 	synthesizer := synth.NewService(
 		synth.NewQuotaAdapter(quotas),
 		cacheManager,

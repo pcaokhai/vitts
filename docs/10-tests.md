@@ -35,8 +35,8 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-10 | US-15 | SSRF guard | http, loopback, RFC1918, link-local, CGNAT, IPv6 ULA, multicast, mixed DNS answer → 422 | `internal/jobs/webhook_guard_test.go`, live stack | unit | done (2.3) | yes
 | T-11 | NFR-07 | No secrets/text in logs | log capture contains metadata and a digest prefix, never a key secret, an Authorization header or request text | `internal/telemetry/redaction_test.go` | unit | done (1.14) | yes |
 | T-12 | 07-permissions | Tenant isolation | tenant A cannot read, cancel or list B's job → 404/empty | `internal/jobs/service_test.go` | unit | done (2.3) | yes |
-| T-13 | US-12 | Overload rejects fast | k6 3× → p95 503 latency < 50 ms; stream still served | `scripts/loadtest/spike.js` | load | proposed M3 | release |
-| T-14 | US-09 | TTFA SLO | k6 80% util → p95 ≤ 300 ms | `scripts/loadtest/steady.js` | load | proposed M3 | release |
+| T-13 | US-12 | Overload rejects fast | k6 at 24× capacity → p95 503 latency 16 ms (budget 50); streams still served | `scripts/loadtest/spike.js`, `docs/reports/load-m3.md` | load | done (3.2) | no |
+| T-14 | US-09 | TTFA SLO | k6 at capacity → TTFA p95 133 ms (budget 300), p99 143 ms (600) | `scripts/loadtest/steady.js`, `docs/reports/load-m3.md` | load | done (3.2) | no |
 | T-15 | US-14 | Idempotency | same key+body → same job; different body → 409; whitespace-only differences still match | `internal/jobs/service_test.go`, live stack | unit | done (2.3) | yes |
 | T-16 | US-04 | Merge duration | sum + gaps ± 50 ms; measured +0 ms on 6 real segments | `worker/tests/test_segment_merge.py`, live stack | unit | done (2.2) | yes |
 | T-17 | ADR-009 | Contract drift | regenerate → no diff | `make generate && git diff --exit-code` | contract | done (0.2) | yes |
@@ -115,6 +115,8 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-96 | US-18 | Metrics endpoint | `/metrics` serves without a credential; a router without metrics still serves | `internal/http/metrics_test.go` | unit | done (3.1) | yes |
 | T-97 | US-18 | Alerts fire on real data | stopping the worker drives `worker_ready` to 0 and fires NoReadyWorker | live stack | manual | done (3.1) | no |
 | T-98 | US-18 | Dashboard is provisioned | Grafana loads the committed dashboard JSON at startup | live stack | manual | done (3.1) | no |
+| T-99 | ADR-007 | Queue is bounded | an overloaded dispatcher refuses in microseconds rather than after the class budget | `internal/dispatch/queue_test.go` | unit | done (3.2) | yes |
+| T-100 | ADR-007 | Free capacity is never refused | while a slot is free every caller is admitted | `internal/dispatch/queue_test.go` | unit | done (3.2) | yes |
 | T-26 | US-02 | Stack smoke | `make up` → worker healthy; one streamed synthesis, frames ordered, `last=true` present | `scripts/smoke.sh` | e2e | done (0.6, gateway leg 1.1) | no |
 | T-25 | US-01 | First frame latency | TTFA ≤ 150 ms for a 21-char input on the bench machine | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.4) | no |
 | T-24 | NFR-06 | Worker config validation | missing revision / partial `VITTS_S3_*` → exit non-zero with a named variable | `worker/tests/test_config.py` | unit | done (0.3) | yes |

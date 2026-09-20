@@ -70,5 +70,8 @@ smoke: ## End-to-end: health, sync, stream, job
 bench: ## Worker RTF/TTFA on this machine
 	@if [ -f scripts/bench.py ]; then cd worker && uv run ../scripts/bench.py --out ../docs/reports/bench-m0.md; else $(call pending,0.5,bench script); fi
 
-loadtest: ## k6 scenarios against the local stack
-	@if [ -d scripts/k6 ]; then k6 run scripts/k6/steady.js; else $(call pending,3.2,k6 scenarios); fi
+# VITTS_KEY must be a live tenant key; VITTS_SCENARIO picks steady, spike or cache.
+loadtest: ## Run a k6 scenario (VITTS_SCENARIO=steady|spike|cache, VITTS_KEY required)
+	@if [ -d scripts/loadtest ]; then \
+		k6 run scripts/loadtest/$${VITTS_SCENARIO:-steady}.js; \
+	else $(call pending,3.2,k6 scenarios); fi

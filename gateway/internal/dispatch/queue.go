@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/pcaokhai/vitts/gateway/internal/telemetry"
 )
 
@@ -54,6 +56,18 @@ const (
 // starve interactive traffic (ADR-007).
 const StreamReservePercent = 30
 
+// QueueDepthPerSlot bounds how many callers may wait per slot of fleet capacity.
+//
+// ADR-007 calls for a *bounded* queue per class, and the bound is what makes US-12's
+// "p95 time to a 503 under 50 ms" achievable: past it a caller is refused in
+// microseconds instead of waiting out the class budget first. Two per slot is about one
+// service time of backlog, which is worth waiting for; more is not.
+const QueueDepthPerSlot = 2
+
+// MinQueueDepth keeps a single-slot fleet from refusing the very first waiter, which
+// would turn a momentary overlap into an error.
+const MinQueueDepth = 2
+
 // ErrOverloaded means no slot became free within the class's wait budget. The caller
 // returns 503 with Retry-After; it must never wait longer instead (NFR-05).
 var ErrOverloaded = errors.New("overloaded")
@@ -80,6 +94,7 @@ func (r *Reservation) Release() {
 type Dispatcher struct {
 	pool    *Pool
 	metrics *telemetry.Metrics
+	logger  zerolog.Logger
 
 	mu sync.Mutex
 	// inFlight counts reservations currently held, by class.
@@ -101,10 +116,11 @@ type Dispatcher struct {
 const initialServiceTime = time.Second
 
 // NewDispatcher wires the dispatcher to a pool. Metrics may be nil in tests.
-func NewDispatcher(pool *Pool, metrics *telemetry.Metrics) *Dispatcher {
+func NewDispatcher(pool *Pool, metrics *telemetry.Metrics, logger zerolog.Logger) *Dispatcher {
 	return &Dispatcher{
 		pool:        pool,
 		metrics:     metrics,
+		logger:      logger,
 		inFlight:    make(map[Class]int),
 		waiting:     make(map[Class]int),
 		serviceTime: initialServiceTime,
@@ -150,6 +166,16 @@ func (d *Dispatcher) Reserve(ctx context.Context, class Class) (*Reservation, er
 	deadline := time.Now().Add(d.waitFor(class))
 	queued := time.Now()
 
+	// Refuse before queueing when this caller could not be served inside its budget
+	// anyway. Admitting it would produce exactly the accept-then-timeout NFR-05 forbids:
+	// the caller waits the full budget and still gets a 503, having learnt nothing it
+	// could not have learnt immediately.
+	if refuse, reason := d.shouldRefuse(class); refuse {
+		d.logger.Debug().Str("class", class.String()).Str("reason", reason).
+			Msg("refusing without queueing")
+		return nil, d.overload(class)
+	}
+
 	d.enter(class)
 	defer d.leave(class)
 
@@ -175,6 +201,45 @@ func (d *Dispatcher) Reserve(ctx context.Context, class Class) (*Reservation, er
 			timer.Stop()
 		}
 	}
+}
+
+// shouldRefuse decides whether to admit a caller to the queue at all.
+//
+// Two bounds apply. The queue is capped per class (ADR-007), and separately a caller is
+// refused when the queue ahead of it cannot drain inside its class budget: with a
+// measured mean service time, "depth ahead × service time" is how long this caller would
+// actually wait, and admitting it past that point guarantees a slow 503 instead of a
+// fast one (NFR-05, US-12 acceptance criterion 1).
+func (d *Dispatcher) shouldRefuse(class Class) (bool, string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	total, free := d.capacity()
+	if free > 0 {
+		return false, "" // a slot is available now
+	}
+
+	limit := total * QueueDepthPerSlot
+	if limit < MinQueueDepth {
+		limit = MinQueueDepth
+	}
+	depth := d.waiting[class]
+	if depth >= limit {
+		return true, "queue full"
+	}
+
+	// How long this caller would wait: everyone already queued, plus itself, divided by
+	// the number of slots that will free up in parallel.
+	slots := total
+	if slots < 1 {
+		slots = 1
+	}
+	expected := time.Duration((depth+1)/slots+1) * d.serviceTime
+	if expected > d.waitFor(class) {
+		return true, "expected wait exceeds the class budget"
+	}
+
+	return false, ""
 }
 
 // tryReserve takes a slot if the fleet has one this class may use.
