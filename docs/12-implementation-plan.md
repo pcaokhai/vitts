@@ -34,7 +34,7 @@ passes locally where applicable. Do not start a task whose dependencies are unme
 | 1.13 | Voices endpoint + preview generation script | 1.2 | US-13 | done `008fa73` |
 | 1.14 | Log redaction test T-11; OpenAPI served at `/openapi.json`; generated handlers via oapi-codegen | 1.9 | contract | done this PR |
 
-## M2 — Jobs and tenant self-service (week 6–7)
+## M2 — Jobs and tenant self-service (week 6–7) — **done**
 
 | # | Task | Depends | Output | Status |
 |---|------|---------|--------|--------|
@@ -44,8 +44,8 @@ passes locally where applicable. Do not start a task whose dependencies are unme
 | 2.4 | Orchestrator: Redis Streams consumer, state machine, segment fan-out, retry, merge, reconciler; T-09 | 2.2,2.3 | US-14 | done this PR |
 | 2.5 | Webhook dispatcher with HMAC and SSRF guard; T-10 | 2.4 | US-15 | done this PR |
 | 2.6 | Keys API; T-18 | 1.3 | US-17 | done this PR |
-| 2.7 | Usage API JSON/CSV | 1.12 | US-16 |
-| 2.8 | Cache eviction + partition maintenance jobs with Redis lock; T-19 | 1.8 | FL-07 |
+| 2.7 | Usage API JSON/CSV | 1.12 | US-16 | done this PR |
+| 2.8 | Cache eviction + partition maintenance jobs with Redis lock; T-19 | 1.8 | FL-07 | done this PR |
 
 ## M3 — Launch readiness (week 8–9)
 

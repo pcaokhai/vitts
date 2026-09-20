@@ -12,6 +12,52 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deleteCacheEntry = `-- name: DeleteCacheEntry :exec
+delete from audio_cache where cache_key = $1
+`
+
+func (q *Queries) DeleteCacheEntry(ctx context.Context, cacheKey []byte) error {
+	_, err := q.db.Exec(ctx, deleteCacheEntry, cacheKey)
+	return err
+}
+
+const evictableCacheEntries = `-- name: EvictableCacheEntries :many
+select cache_key, s3_key from audio_cache
+where last_hit_at < $1
+order by last_hit_at
+limit $2
+`
+
+type EvictableCacheEntriesParams struct {
+	LastHitAt pgtype.Timestamptz
+	Limit     int32
+}
+
+type EvictableCacheEntriesRow struct {
+	CacheKey []byte
+	S3Key    string
+}
+
+func (q *Queries) EvictableCacheEntries(ctx context.Context, arg EvictableCacheEntriesParams) ([]EvictableCacheEntriesRow, error) {
+	rows, err := q.db.Query(ctx, evictableCacheEntries, arg.LastHitAt, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EvictableCacheEntriesRow{}
+	for rows.Next() {
+		var i EvictableCacheEntriesRow
+		if err := rows.Scan(&i.CacheKey, &i.S3Key); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertSynthRequest = `-- name: InsertSynthRequest :exec
 insert into synth_requests (
     id, tenant_id, api_key_id, voice_id, cache_key, mode, chars,
@@ -55,6 +101,38 @@ func (q *Queries) InsertSynthRequest(ctx context.Context, arg InsertSynthRequest
 	return err
 }
 
+const rollupUsageDaily = `-- name: RollupUsageDaily :exec
+insert into usage_daily (tenant_id, day, chars, audio_ms, requests, cache_hits)
+select
+    tenant_id,
+    (created_at at time zone 'UTC')::date as day,
+    sum(chars)::bigint,
+    coalesce(sum(duration_ms), 0)::bigint,
+    count(*)::bigint,
+    count(*) filter (where cached)::bigint
+from synth_requests
+where created_at >= $1 and created_at < $2
+  and status in ('ok', 'client_cancelled')
+group by tenant_id, (created_at at time zone 'UTC')::date
+on conflict (tenant_id, day) do update set
+    chars = excluded.chars,
+    audio_ms = excluded.audio_ms,
+    requests = excluded.requests,
+    cache_hits = excluded.cache_hits
+`
+
+type RollupUsageDailyParams struct {
+	CreatedAt   pgtype.Timestamptz
+	CreatedAt_2 pgtype.Timestamptz
+}
+
+// Upsert the daily rollup from the request log. Re-running it for a window is safe:
+// the aggregate is recomputed, not incremented (FL-07).
+func (q *Queries) RollupUsageDaily(ctx context.Context, arg RollupUsageDailyParams) error {
+	_, err := q.db.Exec(ctx, rollupUsageDaily, arg.CreatedAt, arg.CreatedAt_2)
+	return err
+}
+
 const sumCharsByTenantSince = `-- name: SumCharsByTenantSince :many
 
 select tenant_id, sum(chars)::bigint as chars
@@ -87,6 +165,53 @@ func (q *Queries) SumCharsByTenantSince(ctx context.Context, arg SumCharsByTenan
 	for rows.Next() {
 		var i SumCharsByTenantSinceRow
 		if err := rows.Scan(&i.TenantID, &i.Chars); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const usageByDay = `-- name: UsageByDay :many
+select day, chars, audio_ms, requests, cache_hits
+from usage_daily
+where tenant_id = $1 and day >= $2 and day <= $3
+order by day
+`
+
+type UsageByDayParams struct {
+	TenantID uuid.UUID
+	Day      pgtype.Date
+	Day_2    pgtype.Date
+}
+
+type UsageByDayRow struct {
+	Day       pgtype.Date
+	Chars     int64
+	AudioMs   int64
+	Requests  int64
+	CacheHits int64
+}
+
+func (q *Queries) UsageByDay(ctx context.Context, arg UsageByDayParams) ([]UsageByDayRow, error) {
+	rows, err := q.db.Query(ctx, usageByDay, arg.TenantID, arg.Day, arg.Day_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UsageByDayRow{}
+	for rows.Next() {
+		var i UsageByDayRow
+		if err := rows.Scan(
+			&i.Day,
+			&i.Chars,
+			&i.AudioMs,
+			&i.Requests,
+			&i.CacheHits,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

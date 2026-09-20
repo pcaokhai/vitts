@@ -27,6 +27,7 @@ import (
 	"github.com/pcaokhai/vitts/gateway/internal/dispatch"
 	gatewayhttp "github.com/pcaokhai/vitts/gateway/internal/http"
 	"github.com/pcaokhai/vitts/gateway/internal/jobs"
+	"github.com/pcaokhai/vitts/gateway/internal/maintenance"
 	"github.com/pcaokhai/vitts/gateway/internal/plans"
 	"github.com/pcaokhai/vitts/gateway/internal/quota"
 	"github.com/pcaokhai/vitts/gateway/internal/ratelimit"
@@ -189,6 +190,15 @@ func run() error {
 	go syncVoices(ctx, catalogue, logger)
 
 	keyManager := auth.NewKeys(postgres.NewKeyRepository(pool), nil)
+	usageRepo := postgres.NewUsageRepository(pool)
+	reporter := usage.NewReporter(usageRepo)
+
+	// Every replica runs the same schedule and takes a lock first, so the work happens
+	// once per interval across the fleet (FL-07, T-19).
+	maintenance.New(
+		redisadapter.NewLock(cacheClient), logger,
+		maintenance.Tasks(postgres.NewMaintenanceRepository(pool), objects, logger)...,
+	).Run(ctx)
 
 	readiness := gatewayhttp.NewReadiness()
 	readiness.Register("postgres", pool.Ready)
@@ -251,6 +261,10 @@ func run() error {
 				{
 					Method: stdhttp.MethodDelete, Pattern: "/keys/{keyId}",
 					Scope: auth.ScopeKeys, Handler: gatewayhttp.RevokeKey(keyManager),
+				},
+				{
+					Method: stdhttp.MethodGet, Pattern: "/usage",
+					Scope: auth.ScopeUsage, Handler: gatewayhttp.GetUsage(reporter, planLimits),
 				},
 			},
 		}),

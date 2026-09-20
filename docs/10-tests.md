@@ -41,7 +41,7 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-16 | US-04 | Merge duration | sum + gaps ± 50 ms; measured +0 ms on 6 real segments | `worker/tests/test_segment_merge.py`, live stack | unit | done (2.2) | yes |
 | T-17 | ADR-009 | Contract drift | regenerate → no diff | `make generate && git diff --exit-code` | contract | done (0.2) | yes |
 | T-18 | US-17 | Key revoke immediate | revoke → next call 401 with no cache wait; scope denied → 403 | `internal/auth/keys_test.go`, live stack | unit | done (2.6) | yes |
-| T-19 | FL-07 | Scheduled jobs single-run | two replicas → lock → one execution | `sched/lock_test.go` | int | proposed M3 | yes |
+| T-19 | FL-07 | Scheduled jobs single-run | two replicas on one schedule → the lock lets exactly one run; a failure still releases | `internal/maintenance/scheduler_test.go` | unit | done (2.8) | yes |
 | T-20 | NFR-12 | Restore drill | restore dump into fresh DB → migrations idempotent | `13-runbook.md` procedure | manual | gap | — |
 | T-21 | US-02 | Health before weights | `ready=false`, `model_version` = pinned revision, answers over gRPC while loading | `worker/tests/test_server.py` | unit | done (0.3) | yes |
 | T-22 | US-02 | Health state is real | `slots_busy` follows the single slot; `rtf_ewma` folds every request | `worker/tests/test_health.py` | unit | done (0.3) | yes |
@@ -104,6 +104,12 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-85 | US-17 | No scope escalation | a key cannot mint a key with scopes it does not hold | `internal/auth/keys_test.go` | unit | done (2.6) | yes |
 | T-86 | ADR-008 | Webhook hides bookkeeping | the payload carries tenant metadata but not internal keys | `internal/webhook/webhook_test.go` | unit | done (2.5) | yes |
 | T-87 | NFR-07 | Webhook secret required | a secret under 32 characters fails the boot | `internal/config/config_test.go` | unit | done (2.5) | yes |
+| T-88 | US-16 | Usage totals | per-day rows sum into period totals shown against the plan limit | `internal/usage/report_test.go`, live stack | unit | done (2.7) | yes |
+| T-89 | US-16 | Report window bounds | backwards or over-long windows → 400; days normalise to UTC | `internal/usage/report_test.go` | unit | done (2.7) | yes |
+| T-90 | US-16 | CSV is RFC 4180 | header row, CRLF endings, parses with a standard reader, valid when empty | `internal/usage/report_test.go`, live stack | unit | done (2.7) | yes |
+| T-91 | NFR-11 | Eviction ordering | object deleted before its row; a failed object delete keeps the row for the next sweep | `internal/maintenance/scheduler_test.go` | unit | done (2.8) | yes |
+| T-92 | FL-07 | Partition look-ahead | maintenance creates the next two months' partitions | `internal/maintenance/scheduler_test.go` | unit | done (2.8) | yes |
+| T-93 | FL-07 | Rollup is idempotent | the rollup window overlaps its interval so a missed tick self-heals | `internal/maintenance/scheduler_test.go`, live stack | unit | done (2.8) | yes |
 | T-26 | US-02 | Stack smoke | `make up` → worker healthy; one streamed synthesis, frames ordered, `last=true` present | `scripts/smoke.sh` | e2e | done (0.6, gateway leg 1.1) | no |
 | T-25 | US-01 | First frame latency | TTFA ≤ 150 ms for a 21-char input on the bench machine | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.4) | no |
 | T-24 | NFR-06 | Worker config validation | missing revision / partial `VITTS_S3_*` → exit non-zero with a named variable | `worker/tests/test_config.py` | unit | done (0.3) | yes |

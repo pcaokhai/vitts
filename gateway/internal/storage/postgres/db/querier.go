@@ -23,6 +23,8 @@ type Querier interface {
 	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
 	CreateJobSegment(ctx context.Context, arg CreateJobSegmentParams) error
 	CreateTenant(ctx context.Context, arg CreateTenantParams) (Tenant, error)
+	DeleteCacheEntry(ctx context.Context, cacheKey []byte) error
+	EvictableCacheEntries(ctx context.Context, arg EvictableCacheEntriesParams) ([]EvictableCacheEntriesRow, error)
 	FailJob(ctx context.Context, arg FailJobParams) (int64, error)
 	FailJobSegment(ctx context.Context, arg FailJobSegmentParams) (int64, error)
 	// API key lookup. The secret is never stored: callers hash it and look up by digest,
@@ -48,6 +50,9 @@ type Querier interface {
 	ListPublicVoices(ctx context.Context) ([]Voice, error)
 	ListVoicesForTenant(ctx context.Context, tenantID *uuid.UUID) ([]Voice, error)
 	RevokeAPIKey(ctx context.Context, arg RevokeAPIKeyParams) (int64, error)
+	// Upsert the daily rollup from the request log. Re-running it for a window is safe:
+	// the aggregate is recomputed, not incremented (FL-07).
+	RollupUsageDaily(ctx context.Context, arg RollupUsageDailyParams) error
 	SetJobSegmentsTotal(ctx context.Context, arg SetJobSegmentsTotalParams) (int64, error)
 	StuckJobs(ctx context.Context, arg StuckJobsParams) ([]Job, error)
 	// Usage reads for quota reconciliation. synth_requests is the system of record; the
@@ -62,6 +67,7 @@ type Querier interface {
 	UpsertCacheEntry(ctx context.Context, arg UpsertCacheEntryParams) error
 	UpsertPlan(ctx context.Context, arg UpsertPlanParams) error
 	UpsertVoice(ctx context.Context, arg UpsertVoiceParams) error
+	UsageByDay(ctx context.Context, arg UsageByDayParams) ([]UsageByDayRow, error)
 }
 
 var _ Querier = (*Queries)(nil)
