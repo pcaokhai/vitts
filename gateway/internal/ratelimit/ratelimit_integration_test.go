@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	goredis "github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
 	"github.com/pcaokhai/vitts/gateway/internal/ratelimit"
@@ -19,6 +20,12 @@ import (
 
 func newLimiter(t *testing.T) *ratelimit.Limiter {
 	t.Helper()
+	limiter, _ := newLimiterWithClient(t)
+	return limiter
+}
+
+func newLimiterWithClient(t *testing.T) (*ratelimit.Limiter, *goredis.Client) {
+	t.Helper()
 
 	ctx := context.Background()
 	client, err := redisadapter.Open(ctx, redistest.Start(t), 32)
@@ -27,7 +34,32 @@ func newLimiter(t *testing.T) *ratelimit.Limiter {
 
 	limiter, err := ratelimit.New(ctx, client.Raw())
 	require.NoError(t, err)
-	return limiter
+	return limiter, client.Raw()
+}
+
+// T-105. A Redis restart empties the script cache. The limiter must reload the script
+// instead of failing every later request with NOSCRIPT, which is what a SHA captured at
+// boot did until the M3 runbook drill caught it (docs/reports/drill-m3.md, finding 1).
+func TestLimiterSurvivesAFlushedScriptCache(t *testing.T) {
+	ctx := context.Background()
+	limiter, rdb := newLimiterWithClient(t)
+	keyID, tenantID := uuid.New(), uuid.New()
+
+	_, err := limiter.Allow(ctx, keyID, 60)
+	require.NoError(t, err)
+
+	require.NoError(t, rdb.ScriptFlush(ctx).Err())
+
+	decision, err := limiter.Allow(ctx, keyID, 60)
+	require.NoError(t, err, "rate limiting must recover from an empty script cache")
+	require.True(t, decision.Allowed)
+
+	lease, ok, err := limiter.Acquire(ctx, tenantID, 2)
+	require.NoError(t, err, "leases must recover from an empty script cache")
+	require.True(t, ok)
+
+	require.NoError(t, rdb.ScriptFlush(ctx).Err())
+	require.NoError(t, limiter.Renew(ctx, lease), "renew must recover from an empty script cache")
 }
 
 func TestFirstRequestOfAKeyIsNeverThrottled(t *testing.T) {

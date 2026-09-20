@@ -364,6 +364,30 @@ func TestJobRunsToCompletion(t *testing.T) {
 	require.Positive(t, f.texts.deletes, "input text is removed once the job is terminal")
 }
 
+// T-108. A job whose orchestrator died between "queued -> segmenting" and the segment
+// rows must resume. It used to be re-queued by the reconciler every minute and dropped
+// every time, because the orchestrator read the status it had set itself as proof that
+// someone else owned the job (docs/reports/drill-m3.md, finding 6).
+func TestAJobStuckInSegmentingResumes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	f := newOrchestrator(t, 3)
+
+	moved, err := f.store.Transition(ctx, f.job.ID, jobs.StatusQueued, jobs.StatusSegmenting)
+	require.NoError(t, err)
+	require.True(t, moved)
+
+	require.NoError(t, f.orchestrator.HandleJobForTest(ctx,
+		jobs.QueueEntry{JobID: f.job.ID, Stream: jobs.StreamJobs}))
+	f.drain(t)
+
+	final, err := f.store.ByID(ctx, f.job.ID)
+	require.NoError(t, err)
+	require.Equal(t, jobs.StatusCompleted, final.Status)
+	require.EqualValues(t, 3, final.SegmentsDone)
+}
+
 // T-09: replaying work after a crash must not re-synthesize finished segments.
 func TestReplayDoesNotRepeatFinishedSegments(t *testing.T) {
 	t.Parallel()

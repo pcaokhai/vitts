@@ -4,12 +4,19 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
+	"github.com/pcaokhai/vitts/gateway/internal/degrade"
 	"github.com/pcaokhai/vitts/gateway/internal/ratelimit"
+	"github.com/pcaokhai/vitts/gateway/internal/telemetry"
 )
+
+// degradeRetryAfter is what a client is told once the limiter has been unreachable for
+// longer than the degrade window. Short, because Redis usually comes back.
+const degradeRetryAfter = 5 * time.Second
 
 // Rate limit headers (US-06 acceptance criterion 1).
 const (
@@ -34,7 +41,13 @@ type PlanLimits interface {
 //
 // It runs after Authenticate, because the bucket is per key and its size comes from the
 // tenant's plan. An unauthenticated request is rejected before it can cost Redis a call.
-func RateLimit(limiter RateLimiter, limits PlanLimits) func(http.Handler) http.Handler {
+func RateLimit(limiter RateLimiter, limits PlanLimits, metrics *telemetry.Metrics) func(http.Handler) http.Handler {
+	return rateLimit(limiter, limits, metrics, degrade.New(degrade.Window, nil))
+}
+
+func rateLimit(
+	limiter RateLimiter, limits PlanLimits, metrics *telemetry.Metrics, breaker *degrade.Breaker,
+) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			identity, ok := IdentityFrom(r.Context())
@@ -51,12 +64,29 @@ func RateLimit(limiter RateLimiter, limits PlanLimits) func(http.Handler) http.H
 
 			decision, err := limiter.Allow(r.Context(), identity.KeyID, perMinute)
 			if err != nil {
-				// Fail closed: a limiter we cannot consult is not permission to ignore
-				// the limit, or one Redis outage becomes an unbounded load test.
-				zerolog.Ctx(r.Context()).Error().Err(err).Msg("rate limiter unavailable")
-				WriteProblem(w, r, &Error{Code: CodeInternal, Cause: err})
+				// Neither failing closed nor failing open is right on its own: one makes
+				// Redis a single point of failure for the whole API, the other turns an
+				// outage into an unbounded load test. Serve for the degrade window, then
+				// refuse (ADR-011).
+				if !breaker.Tolerate() {
+					zerolog.Ctx(r.Context()).Error().Err(err).
+						Msg("rate limiter unavailable beyond the degrade window")
+					WriteProblem(w, r, &Error{
+						Code:       CodeOverloaded,
+						Detail:     "rate limiting is unavailable",
+						RetryAfter: degradeRetryAfter,
+						Cause:      err,
+					})
+					return
+				}
+				zerolog.Ctx(r.Context()).Warn().Err(err).Msg("rate limiter unavailable, serving degraded")
+				if metrics != nil {
+					metrics.DegradedTotal.WithLabelValues("ratelimit").Inc()
+				}
+				next.ServeHTTP(w, r)
 				return
 			}
+			breaker.Succeed()
 
 			writeRateHeaders(w, decision)
 			if !decision.Allowed {

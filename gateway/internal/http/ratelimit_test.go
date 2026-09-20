@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pcaokhai/vitts/gateway/internal/auth"
+	"github.com/pcaokhai/vitts/gateway/internal/degrade"
 	gatewayhttp "github.com/pcaokhai/vitts/gateway/internal/http"
 	"github.com/pcaokhai/vitts/gateway/internal/ratelimit"
 )
@@ -46,7 +47,21 @@ func limited(limiter gatewayhttp.RateLimiter, plans gatewayhttp.PlanLimits) http
 		return liveIdentity(auth.ScopeSynth), nil
 	})
 	handler := gatewayhttp.Authenticate(auth.NewAuthenticator(repo))(
-		gatewayhttp.RateLimit(limiter, plans)(final))
+		gatewayhttp.RateLimit(limiter, plans, nil)(final))
+	return gatewayhttp.RequestID(gatewayhttp.Logger(zerolog.New(&strings.Builder{}))(handler))
+}
+
+func limitedWithBreaker(
+	limiter gatewayhttp.RateLimiter, plans gatewayhttp.PlanLimits, breaker *degrade.Breaker,
+) http.Handler {
+	final := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	repo := repoFunc(func(context.Context, []byte) (auth.Identity, error) {
+		return liveIdentity(auth.ScopeSynth), nil
+	})
+	handler := gatewayhttp.Authenticate(auth.NewAuthenticator(repo))(
+		gatewayhttp.RateLimitWithBreaker(limiter, plans, nil, breaker)(final))
 	return gatewayhttp.RequestID(gatewayhttp.Logger(zerolog.New(&strings.Builder{}))(handler))
 }
 
@@ -97,15 +112,26 @@ func TestRetryAfterIsNeverZero(t *testing.T) {
 		"Retry-After 0 would invite an immediate retry into the same refusal")
 }
 
-func TestRateLimitFailsClosedWhenRedisIsDown(t *testing.T) {
+// T-106. A limiter outage degrades for a bounded window and then refuses. Failing closed
+// immediately made Redis a single point of failure for the whole API; failing open
+// forever would serve unlimited traffic (ADR-011).
+func TestRateLimitDegradesForAWindowThenRefuses(t *testing.T) {
 	t.Parallel()
 
+	now := time.Unix(0, 0)
 	limiter := &stubLimiter{err: errors.New("dial tcp: connection refused")}
+	handler := limitedWithBreaker(limiter, stubPlans{perMinute: 60},
+		gatewayhttp.NewBreaker(60*time.Second, func() time.Time { return now }))
 
-	res := do(t, limited(limiter, stubPlans{perMinute: 60}), authedRequest())
+	res := do(t, handler, authedRequest())
+	require.Equal(t, http.StatusOK, res.Code, "a brief Redis outage must not take the API down")
 
-	require.Equal(t, http.StatusInternalServerError, res.Code,
-		"a limiter we cannot consult is not permission to ignore the limit")
+	now = now.Add(61 * time.Second)
+
+	res = do(t, handler, authedRequest())
+	require.Equal(t, http.StatusServiceUnavailable, res.Code,
+		"past the window the gateway stops serving unlimited traffic")
+	require.NotEmpty(t, res.Header().Get(gatewayhttp.HeaderRetryAfter))
 	require.NotContains(t, res.Body.String(), "connection refused")
 }
 
@@ -124,7 +150,7 @@ func TestRateLimitRequiresAuthentication(t *testing.T) {
 	t.Parallel()
 
 	limiter := &stubLimiter{decision: ratelimit.RateDecision{Allowed: true}}
-	handler := gatewayhttp.RequestID(gatewayhttp.RateLimit(limiter, stubPlans{perMinute: 60})(
+	handler := gatewayhttp.RequestID(gatewayhttp.RateLimit(limiter, stubPlans{perMinute: 60}, nil)(
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })))
 
 	res := do(t, handler, httptest.NewRequest(http.MethodPost, "/v1/synthesize", nil))

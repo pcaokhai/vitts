@@ -116,6 +116,10 @@ func run() error {
 	}
 	defer pool.Close()
 
+	if err := checkSchemaVersion(ctx, pool); err != nil {
+		return err
+	}
+
 	cacheClient, err := redisadapter.Open(ctx, cfg.RedisURL, cfg.RedisPoolSize)
 	if err != nil {
 		return fmt.Errorf("redis: %w", err)
@@ -474,4 +478,30 @@ func consumerName(cfg config.Config) string {
 		host = "gateway"
 	}
 	return fmt.Sprintf("%s-%s-%d", host, cfg.Env, os.Getpid())
+}
+
+// checkSchemaVersion refuses to serve against a schema older than this binary's own
+// migrations.
+//
+// The migrations job and the serving image are deployed separately, so they can drift:
+// an M3 drill found a stack whose migrations job image was a day old, reporting success
+// while a whole milestone's tables were missing. Boot is the only place this is cheap to
+// notice (docs/reports/drill-m3.md, finding 3).
+func checkSchemaVersion(ctx context.Context, pool *postgres.Pool) error {
+	want, err := migrations.Latest()
+	if err != nil {
+		return err
+	}
+
+	have, err := pool.SchemaVersion(ctx)
+	if err != nil {
+		return err
+	}
+	if have < want {
+		return fmt.Errorf(
+			"database is at schema version %d but this build needs %d: run the migrations job for this image before starting the gateway",
+			have, want,
+		)
+	}
+	return nil
 }

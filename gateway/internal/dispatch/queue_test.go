@@ -106,6 +106,45 @@ func TestBatchCannotConsumeTheStreamReservation(t *testing.T) {
 	stream.Release()
 }
 
+// T-109. Capacity can also return without a release: a worker re-admitted after ejection,
+// or one that abandoned a request, moves the health snapshot with no signal behind it. A
+// waiter parked on the release channel alone slept beside an idle worker until its budget
+// expired — in the M3 drill, a job queued for minutes while worker_slots_busy read 0
+// (docs/reports/drill-m3.md, finding 5).
+func TestAWaiterIsAdmittedWhenCapacityReturnsWithoutARelease(t *testing.T) {
+	t.Parallel()
+
+	d, server := dispatcherWith(t, 1)
+	busy := &workerpb.HealthResponse{
+		Ready: true, ModelVersion: "test", SlotsTotal: 1, SlotsBusy: 1,
+	}
+	server.SetHealth(busy)
+	// Wait for the dispatcher to actually see a full fleet, or the waiter below never
+	// waits and the test proves nothing.
+	eventually(t, func() bool { return d.FreeSlotsForTest() == 0 }, "fleet never looked busy")
+
+	admitted := make(chan error, 1)
+	go func() {
+		reservation, err := d.Reserve(context.Background(), dispatch.ClassStream)
+		if err == nil {
+			reservation.Release()
+		}
+		admitted <- err
+	}()
+
+	time.Sleep(50 * time.Millisecond) // let the waiter park
+	server.SetHealth(&workerpb.HealthResponse{
+		Ready: true, ModelVersion: "test", SlotsTotal: 1, SlotsBusy: 0,
+	})
+
+	select {
+	case err := <-admitted:
+		require.NoError(t, err, "a free slot must admit the waiter even with no release signal")
+	case <-time.After(dispatch.StreamWait):
+		t.Fatal("waiter slept beside an idle worker until its budget expired")
+	}
+}
+
 func TestReleasingASlotWakesAWaiter(t *testing.T) {
 	t.Parallel()
 

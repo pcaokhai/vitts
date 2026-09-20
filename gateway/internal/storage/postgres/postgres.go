@@ -72,3 +72,22 @@ func (p *Pool) Raw() *pgxpool.Pool { return p.pool }
 
 // Close releases every connection. Safe to call once, at shutdown.
 func (p *Pool) Close() { p.pool.Close() }
+
+// SchemaVersion is the highest migration the database has applied, or zero when the
+// migrations job has never run against it.
+//
+// The caller compares it with the migrations embedded in its own binary; this package
+// only reads the number, because goose_db_version is a table and tables live here.
+func (p *Pool) SchemaVersion(ctx context.Context) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, pingTimeout)
+	defer cancel()
+
+	var version int64
+	err := p.pool.QueryRow(ctx,
+		"select coalesce(max(version_id), 0) from goose_db_version",
+	).Scan(&version)
+	if err != nil {
+		return 0, fmt.Errorf("read schema version (has the migrations job run?): %w", err)
+	}
+	return version, nil
+}

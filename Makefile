@@ -70,7 +70,10 @@ prod-config: ## Render the production compose config (requires the production en
 	@$(PROD_COMPOSE) config >/dev/null && echo "production compose config is valid"
 
 up: ## Start the local stack
-	@if [ -f deploy/docker-compose.yml ]; then $(COMPOSE) up -d; else $(call pending,0.6,local stack); fi
+	# --build, always: without it compose reuses an image built before the last
+	# migration was written, the migrations job exits 0 a version short, and the schema
+	# silently lags the code (docs/reports/drill-m3.md, finding 3).
+	@if [ -f deploy/docker-compose.yml ]; then $(COMPOSE) up -d --build; else $(call pending,0.6,local stack); fi
 
 down: ## Stop the local stack and drop volumes
 	@if [ -f deploy/docker-compose.yml ]; then $(COMPOSE) down -v; else $(call pending,0.6,local stack); fi

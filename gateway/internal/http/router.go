@@ -107,7 +107,7 @@ func Router(deps Deps) http.Handler {
 func TenantRoutes(deps Deps) http.Handler {
 	r := chi.NewRouter()
 	r.Use(Authenticate(deps.Auth))
-	r.Use(RateLimit(deps.Limiter, deps.Plans))
+	r.Use(RateLimit(deps.Limiter, deps.Plans, deps.Metrics))
 
 	for _, route := range deps.TenantAPI {
 		handler := http.Handler(route.Handler)

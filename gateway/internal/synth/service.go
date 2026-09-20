@@ -15,6 +15,7 @@ import (
 
 	"github.com/pcaokhai/vitts/gateway/internal/audio"
 	"github.com/pcaokhai/vitts/gateway/internal/cache"
+	"github.com/pcaokhai/vitts/gateway/internal/degrade"
 	"github.com/pcaokhai/vitts/gateway/internal/dispatch"
 	workerpb "github.com/pcaokhai/vitts/gateway/internal/gen/workerpb"
 	"github.com/pcaokhai/vitts/gateway/internal/telemetry"
@@ -89,11 +90,21 @@ type Service struct {
 	meter      Meter
 	logger     zerolog.Logger
 	metrics    *telemetry.Metrics
+	quotaBreak *degrade.Breaker
 }
 
 // SetMetrics attaches the instrument set. Separate from the constructor because metrics
 // are optional: tests run without them, and a nil set means the service records nothing.
 func (s *Service) SetMetrics(metrics *telemetry.Metrics) { s.metrics = metrics }
+
+// observeDegraded counts requests served without a dependency, so the alert fires on the
+// impact rather than on the dependency's own uptime.
+func (s *Service) observeDegraded(dependency string) {
+	if s.metrics == nil {
+		return
+	}
+	s.metrics.DegradedTotal.WithLabelValues(dependency).Inc()
+}
 
 // observe records what one synthesis cost, in the shape US-18 asks for.
 func (s *Service) observe(mode string, tenantID uuid.UUID, chars int64, ttfaMS, durationMS int32, elapsed time.Duration, cached bool) {
@@ -128,6 +139,7 @@ func NewService(
 	return &Service{
 		quota: quota, cache: cache, dispatcher: dispatcher,
 		catalogue: catalogue, plans: plans, meter: meter, logger: logger,
+		quotaBreak: degrade.New(degrade.Window, nil),
 	}
 }
 
@@ -312,8 +324,20 @@ func (s *Service) checkQuota(ctx context.Context, req Request, planID string) er
 
 	decision, err := s.quota.Check(ctx, req.TenantID, allowance, req.Chars())
 	if err != nil {
-		return fmt.Errorf("check quota: %w", err)
+		// A quota counter we cannot read is not a reason to stop the API for every
+		// tenant, but it is a reason to stop soon: serve for the degrade window, then
+		// refuse (ADR-011). Usage is still recorded after delivery, so a tenant served
+		// during the window is billed once the counter comes back.
+		if !s.quotaBreak.Tolerate() {
+			return fmt.Errorf("check quota: %w", err)
+		}
+		s.logger.Warn().Err(err).
+			Str("tenant_id", req.TenantID.String()).
+			Msg("quota unavailable, serving degraded")
+		s.observeDegraded("quota")
+		return nil
 	}
+	s.quotaBreak.Succeed()
 	if !decision.Allowed {
 		return fmt.Errorf("%w: used %d of %d", ErrQuotaExceeded, decision.Used, allowance)
 	}

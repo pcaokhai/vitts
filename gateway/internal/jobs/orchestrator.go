@@ -202,10 +202,17 @@ func (o *Orchestrator) handleJob(ctx context.Context, entry QueueEntry) error {
 		return o.fanOut(ctx, job)
 	}
 
-	if moved, err := o.store.Transition(ctx, job.ID, StatusQueued, StatusSegmenting); err != nil {
-		return err
-	} else if !moved {
-		return nil // another orchestrator took it
+	// A job already in segmenting is one whose orchestrator died between the transition
+	// and the segment rows. Resuming is safe — segment inserts are `on conflict do
+	// nothing` — and it is the only way out: the reconciler re-queues such a job forever,
+	// and treating it as "someone else has it" left it re-queued and ignored every minute
+	// until a human noticed (docs/reports/drill-m3.md, finding 6).
+	if job.Status != StatusSegmenting {
+		if moved, err := o.store.Transition(ctx, job.ID, StatusQueued, StatusSegmenting); err != nil {
+			return err
+		} else if !moved {
+			return nil // another orchestrator took it
+		}
 	}
 
 	text, err := o.texts.GetText(ctx, job.TenantID, job.ID)

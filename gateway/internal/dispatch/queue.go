@@ -44,6 +44,10 @@ const (
 	// BatchWait is long rather than unbounded: "unbounded" in ADR-007 means batch yields
 	// to higher classes, not that a job segment may wait forever holding a goroutine.
 	BatchWait = 5 * time.Minute
+	// recheckInterval bounds how long a waiter sleeps before re-reading capacity, so a
+	// missed release signal costs a tick rather than the class budget. It runs only while
+	// a caller is queued, which is already the exceptional path.
+	recheckInterval = 50 * time.Millisecond
 )
 
 // Retry-After bounds from US-12 acceptance criterion 3.
@@ -179,7 +183,15 @@ func (d *Dispatcher) Reserve(ctx context.Context, class Class) (*Reservation, er
 	d.enter(class)
 	defer d.leave(class)
 
-	for {
+	// first guards the budget: a caller always gets one attempt, and every attempt after
+	// that must still be inside its class budget. Without the guard a waiter woken by the
+	// recheck tick could take a slot it was already too late for, which is the
+	// accept-then-timeout NFR-05 forbids, arriving by the back door.
+	for first := true; ; first = false {
+		if !first && time.Now().After(deadline) {
+			return nil, d.overload(class)
+		}
+
 		if reservation, ok := d.tryReserve(class); ok {
 			d.observeWait(class, time.Since(queued))
 			return reservation, nil
@@ -190,13 +202,24 @@ func (d *Dispatcher) Reserve(ctx context.Context, class Class) (*Reservation, er
 			return nil, d.overload(class)
 		}
 
+		// Wake on the release signal, and also on a tick.
+		//
+		// The signal is an edge, but free capacity is derived from health snapshots that
+		// the pool refreshes on its own schedule. A slot that frees without passing
+		// through releaseSlot — a worker re-admitted after ejection, a request the worker
+		// abandoned — moves the snapshot with no signal behind it, and a waiter parked on
+		// the channel alone sleeps until its budget expires beside an idle worker. The
+		// M3 drill caught exactly that: queue depth 1, worker_slots_busy 0
+		// (docs/reports/drill-m3.md, finding 5).
+		if remaining > recheckInterval {
+			remaining = recheckInterval
+		}
 		timer := time.NewTimer(remaining)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
 			return nil, ctx.Err()
 		case <-timer.C:
-			return nil, d.overload(class)
 		case <-d.free:
 			timer.Stop()
 		}

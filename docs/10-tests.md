@@ -42,7 +42,7 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-17 | ADR-009 | Contract drift | regenerate → no diff | `make generate && git diff --exit-code` | contract | done (0.2) | yes |
 | T-18 | US-17 | Key revoke immediate | revoke → next call 401 with no cache wait; scope denied → 403 | `internal/auth/keys_test.go`, live stack | unit | done (2.6) | yes |
 | T-19 | FL-07 | Scheduled jobs single-run | two replicas on one schedule → the lock lets exactly one run; a failure still releases | `internal/maintenance/scheduler_test.go` | unit | done (2.8) | yes |
-| T-20 | NFR-12 | Restore drill | restore dump into fresh DB → migrations idempotent | `13-runbook.md` procedure | manual | gap | — |
+| T-20 | NFR-12 | Restore drill | restore dump into fresh DB → migrations idempotent; partitions and the partition function survive | `13-runbook.md` procedure, `docs/reports/drill-m3.md` | manual | done (3.4) | no |
 | T-21 | US-02 | Health before weights | `ready=false`, `model_version` = pinned revision, answers over gRPC while loading | `worker/tests/test_server.py` | unit | done (0.3) | yes |
 | T-22 | US-02 | Health state is real | `slots_busy` follows the single slot; `rtf_ewma` folds every request | `worker/tests/test_health.py` | unit | done (0.3) | yes |
 | T-23 | US-02 | Engine loads pinned weights | load → `ready=true`, shipped voices listed, RTF < 1.0 on CPU | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.3) | no |
@@ -120,6 +120,11 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-101 | US-19 | Images are pinned and non-root | every FROM and compose image carries a digest; gateway runs as nonroot with no shell; worker as uid 10001 | live inspection | manual | done (3.3) | no |
 | T-102 | US-19 | Production config fails closed | the overlay refuses to render when a secret is unset | `make prod-config` | manual | done (3.3) | no |
 | T-103 | US-19 | Dependency scanning gates merges | govulncheck and pip-audit run in CI; unreviewed findings fail | `.github/workflows/ci.yml`, `scripts/audit.sh` | ci | done (3.3) | yes |
+| T-105 | NFR-04 | Limiter survives a script flush | `SCRIPT FLUSH` mid-test → rate limit, lease and renew all still work | `internal/ratelimit/ratelimit_integration_test.go` | integration | done (3.4) | yes |
+| T-106 | ADR-011 | Degrade window is bounded | limiter down → served inside 60 s, `503 overloaded` + `Retry-After` past it; a success resets the window | `internal/http/ratelimit_test.go`, `internal/degrade/degrade_test.go` | unit | done (3.4) | yes |
+| T-107 | NFR-12 | Gateway refuses a stale schema | DB behind the binary's embedded migrations → boot fails naming both versions | `internal/storage/postgres`, `migrations/migrations_test.go`, drill 4 | unit + manual | done (3.4) | yes |
+| T-109 | NFR-05 | Waiter wakes without a release | capacity returns via a health snapshot with no release signal → the waiter is admitted, not left to its budget | `internal/dispatch/queue_test.go` | unit | done (3.4) | yes |
+| T-108 | US-03 | Stuck segmenting resumes | a job left in `segmenting` by a dead orchestrator is picked up and completed, not re-queued forever | `internal/jobs/orchestrator_test.go` | unit | done (3.4) | yes |
 | T-104 | NFR-12 | Exceptions expire | an accepted finding past its review_by date fails the audit | `scripts/audit.sh`, `security/accepted.yaml` | ci | done (3.3) | yes |
 | T-26 | US-02 | Stack smoke | `make up` → worker healthy; one streamed synthesis, frames ordered, `last=true` present | `scripts/smoke.sh` | e2e | done (0.6, gateway leg 1.1) | no |
 | T-25 | US-01 | First frame latency | TTFA ≤ 150 ms for a 21-char input on the bench machine | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.4) | no |
@@ -127,8 +132,15 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 
 ## Gaps (ranked)
 
-1. T-20 backup restore is manual; automate quarterly.
+1. T-20 backup restore is drilled (3.4) but still manual; automate quarterly.
 2. Audio quality regression (WER via PhoWhisper) has no harness; proposed for M4 using upstream `eval` extra on a fixed 50-sentence corpus.
 3. T-23 is excluded from CI (it downloads ~200 MB of weights); run it in the nightly
    job that lands with 0.5 bench.
 4. WebSocket cancel semantics (US-10) share T-07 logic but need their own integration test in M1.
+5. The job streams are still consumed one entry at a time. That is correct but serial:
+   with more workers than one, concurrent handling sized from worker slots is the next
+   throughput step. Needs its own task and an ADR (it touches the segment claim, the
+   reconciler and ADR-003).
+6. No test restarts a dependency mid-suite. T-105 flushes Redis' script cache, which is
+   the part that bit us, but a real restart also drops connections; a chaos step in the
+   integration suite would have caught finding 1 a milestone earlier.

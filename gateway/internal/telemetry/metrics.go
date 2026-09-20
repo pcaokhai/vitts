@@ -32,6 +32,7 @@ type Metrics struct {
 
 	// Cache and billing.
 	CacheTotal      *prometheus.CounterVec
+	DegradedTotal   *prometheus.CounterVec
 	UsageCharsTotal *prometheus.CounterVec
 
 	// Fleet.
@@ -108,6 +109,14 @@ func NewMetrics() *Metrics {
 			Name: "dispatch_overloaded_total",
 			Help: "Requests refused because no slot became free inside the class budget.",
 		}, []string{"class"}),
+
+		// Alerting on the impact, not on the dependency: this counts requests the
+		// gateway served without a limit or quota check because Redis was unreachable
+		// (ADR-011). It is the signal the runbook's "Redis lost" row acts on.
+		DegradedTotal: factory.counterVec(prometheus.CounterOpts{
+			Name: "dependency_degraded_total",
+			Help: "Requests served without a dependency that was unreachable, by dependency.",
+		}, []string{"dependency"}),
 
 		CacheTotal: factory.counterVec(prometheus.CounterOpts{
 			Name: "cache_total",

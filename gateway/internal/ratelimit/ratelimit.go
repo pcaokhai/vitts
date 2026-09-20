@@ -39,32 +39,40 @@ var ErrLeaseLost = errors.New("lease lost")
 // Limiter runs the limit scripts.
 type Limiter struct {
 	rdb         *goredis.Client
-	tokenSHA    string
-	leaseSHA    string
-	renewSHA    string
+	tokenBucket *goredis.Script
+	lease       *goredis.Script
+	renew       *goredis.Script
 	leaseTTL    time.Duration
 	nowOverride func() time.Time // tests only
 }
 
-// New loads the scripts into Redis. Loading at boot rather than per call means the hot
-// path is EVALSHA with no script body on the wire.
+// New prepares the limit scripts.
+//
+// Each call is EVALSHA so the script body stays off the hot path, but goredis.Script
+// re-sends the body on NOSCRIPT. That fallback is the whole point: a Redis restart
+// empties the script cache, and a limiter pinned to a SHA loaded at boot would answer
+// every later request with an error until the gateway itself was restarted
+// (docs/reports/drill-m3.md, finding 1).
 func New(ctx context.Context, rdb *goredis.Client) (*Limiter, error) {
-	l := &Limiter{rdb: rdb, leaseTTL: LeaseTTL}
+	l := &Limiter{
+		rdb:         rdb,
+		tokenBucket: goredis.NewScript(tokenBucketScript),
+		lease:       goredis.NewScript(leaseScript),
+		renew:       goredis.NewScript(renewScript),
+		leaseTTL:    LeaseTTL,
+	}
 
-	for _, script := range []struct {
-		body string
-		into *string
-		name string
-	}{
-		{tokenBucketScript, &l.tokenSHA, "token_bucket"},
-		{leaseScript, &l.leaseSHA, "lease"},
-		{renewScript, &l.renewSHA, "renew"},
+	// Preloading is an optimisation, not a requirement: it warms the cache so the first
+	// request is a plain EVALSHA. A Redis that cannot be reached here fails the boot
+	// probe anyway, so the error is still worth returning.
+	for name, script := range map[string]*goredis.Script{
+		"token_bucket": l.tokenBucket,
+		"lease":        l.lease,
+		"renew":        l.renew,
 	} {
-		sha, err := rdb.ScriptLoad(ctx, script.body).Result()
-		if err != nil {
-			return nil, fmt.Errorf("load %s script: %w", script.name, err)
+		if err := script.Load(ctx, rdb).Err(); err != nil {
+			return nil, fmt.Errorf("load %s script: %w", name, err)
 		}
-		*script.into = sha
 	}
 
 	return l, nil
@@ -96,7 +104,7 @@ func (l *Limiter) Allow(ctx context.Context, keyID uuid.UUID, perMinute int32) (
 	}
 
 	refillPerSec := float64(perMinute) / refillWindow.Seconds()
-	res, err := l.rdb.EvalSha(ctx, l.tokenSHA,
+	res, err := l.tokenBucket.Run(ctx, l.rdb,
 		[]string{rateKey(keyID)},
 		perMinute, refillPerSec, l.now().UnixMilli(), 1,
 	).Slice()
@@ -133,7 +141,7 @@ func (l *Limiter) Acquire(ctx context.Context, tenantID uuid.UUID, limit int32) 
 	}
 
 	lease := Lease{ID: uuid.NewString(), TenantID: tenantID}
-	res, err := l.rdb.EvalSha(ctx, l.leaseSHA,
+	res, err := l.lease.Run(ctx, l.rdb,
 		[]string{concKey(tenantID)},
 		limit, l.now().UnixMilli(), l.leaseTTL.Milliseconds(), lease.ID,
 	).Slice()
@@ -156,7 +164,7 @@ func (l *Limiter) Acquire(ctx context.Context, tenantID uuid.UUID, limit int32) 
 
 // Renew extends a lease while its stream is still running.
 func (l *Limiter) Renew(ctx context.Context, lease Lease) error {
-	res, err := l.rdb.EvalSha(ctx, l.renewSHA,
+	res, err := l.renew.Run(ctx, l.rdb,
 		[]string{concKey(lease.TenantID)},
 		l.now().UnixMilli(), l.leaseTTL.Milliseconds(), lease.ID,
 	).Int64()

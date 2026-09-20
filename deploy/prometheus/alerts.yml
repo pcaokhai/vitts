@@ -64,6 +64,21 @@ groups:
           summary: "Requests have been rejected as overloaded for 30 minutes"
           description: "Add worker capacity or revisit the plan limits."
 
+      - alert: ServingDegraded
+        # ADR-011: the gateway serves for a bounded window when Redis cannot be reached,
+        # so requests keep succeeding while limits and quota are not being enforced. No
+        # other signal shows this — http_requests_total stays green throughout.
+        expr: sum(rate(dependency_degraded_total[5m])) > 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Requests are being served without limit or quota checks"
+          description: >-
+            Redis is unreachable. Traffic is unmetered until it returns, and the gateway
+            starts refusing once the degrade window closes. See docs/13-runbook.md
+            "Redis lost".
+
       - alert: GatewayDown
         expr: up{job="gateway"} == 0
         for: 2m
