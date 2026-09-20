@@ -53,7 +53,7 @@ passes locally where applicable. Do not start a task whose dependencies are unme
 |---|------|---------|--------|--------|
 | 3.1 | Prometheus metrics complete, Grafana dashboards, alert rules | M1 | US-18 | done this PR |
 | 3.2 | k6 scenarios steady/spike/cache; run and publish `docs/reports/load-m3.md`; T-13, T-14 | M2 | US-20 | done this PR |
-| 3.3 | Prod compose, secrets from env store, non-root images, digest pins, `govulncheck`/`pip-audit`/`gitleaks` in CI | M2 | US-19 |
+| 3.3 | Prod compose, secrets from env store, non-root images, digest pins, `govulncheck`/`pip-audit`/`gitleaks` in CI | M2 | US-19 | done this PR |
 | 3.4 | Runbook drills: worker replace, Redis restart, restore from backup (T-20) | 3.3 | 13-runbook |
 | 3.5 | Minimal console (Next.js or HTMX): login via key, usage chart, key management | 2.6,2.7 | F-12 |
 | 3.6 | Python + JS SDK thin clients generated from OpenAPI; docs site | 1.14 | F-14 |

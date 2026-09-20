@@ -8,6 +8,7 @@ PROTOC_GEN_GO_VERSION=v1.35.2
 PROTOC_GEN_GO_GRPC_VERSION=v1.5.1
 GOLANGCI_LINT_VERSION=v2.6.1
 GITLEAKS_VERSION=v8.21.2
+GOVULNCHECK_VERSION=latest
 GOOSE_VERSION=v3.22.1
 SQLC_VERSION=v1.27.0
 
@@ -31,6 +32,9 @@ need sqlc  || CGO_ENABLED=0 go install github.com/sqlc-dev/sqlc/cmd/sqlc@${SQLC_
 
 echo "==> gitleaks"
 need gitleaks || CGO_ENABLED=0 go install github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}
+
+echo "==> govulncheck"
+need govulncheck || CGO_ENABLED=0 go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
 
 echo "==> python (worker deps come from worker/pyproject.toml once 0.3 lands)"
 need uv || { echo "install uv: https://docs.astral.sh/uv/getting-started/installation/"; exit 1; }

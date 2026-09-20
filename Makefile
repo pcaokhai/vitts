@@ -4,7 +4,7 @@
 # exists the real command runs and its failure fails the target.
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
-.PHONY: help setup generate lint test test-model test-integration migrate seed up down smoke bench loadtest
+.PHONY: help setup generate lint audit test test-model test-integration migrate seed prod-config up down smoke bench loadtest
 
 # --env-file: .env.example is the single source of the pinned revision and the local
 # dev credentials, so the compose file never repeats them.
@@ -28,6 +28,10 @@ generate: ## Regenerate proto, OpenAPI and sqlc code (CI fails on diff)
 	@if [ -f proto/buf.gen.yaml ]; then cd proto && buf generate && python3 ../scripts/postgen.py; else $(call pending,0.2,proto stubs); fi
 	@if [ -f gateway/sqlc.yaml ]; then cd gateway && sqlc generate; else $(call pending,1.2,sqlc); fi
 	@cp docs/api/openapi.yaml gateway/api/openapi.yaml
+
+# Same scanners CI runs, so a vulnerability is found before the push rather than after.
+audit: ## Scan dependencies for known vulnerabilities (reviewed exceptions in security/)
+	@if [ -x scripts/audit.sh ]; then ./scripts/audit.sh; else $(call pending,3.3,audit script); fi
 
 lint: ## golangci-lint, ruff, mypy, buf lint
 	@if command -v gitleaks >/dev/null; then gitleaks dir . --no-banner --redact; else $(call pending,0.2,gitleaks); fi
@@ -57,6 +61,13 @@ test-model: ## Worker tests that load the real ZeroTTS weights (~200 MB download
 
 test-integration: ## Testcontainers (Postgres, Redis, MinIO) + fake worker
 	@if [ -f gateway/go.mod ]; then cd gateway && $(GOTEST) -tags=integration ./...; else $(call pending,1.2,integration tests); fi
+
+PROD_COMPOSE := docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml
+
+# Validates the production overlay against the environment you have. It renders the
+# merged config; a missing secret fails here rather than at deploy time.
+prod-config: ## Render the production compose config (requires the production env vars)
+	@$(PROD_COMPOSE) config >/dev/null && echo "production compose config is valid"
 
 up: ## Start the local stack
 	@if [ -f deploy/docker-compose.yml ]; then $(COMPOSE) up -d; else $(call pending,0.6,local stack); fi

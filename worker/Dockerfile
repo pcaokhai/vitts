@@ -1,6 +1,10 @@
-# Base carries uv and CPython 3.12. Digest pinning and image hardening are task 3.3;
-# this image is what `make up` runs locally.
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+# Worker image. The base carries uv and CPython 3.12, pinned by digest so a rebuild
+# months from now produces the same image rather than whatever the tag points at then.
+#
+# Unlike the gateway this cannot be distroless: onnxruntime and libsndfile need a libc
+# and the model needs a writable cache. It runs as a non-root user instead, with the
+# model directory as the only path it may write.
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

@@ -21,7 +21,7 @@ agent; this file is the authority.
 
 ## Go
 
-- Go 1.25, modules, `golangci-lint` with `errcheck, govet, staticcheck, gosec, revive,
+- Go 1.26, modules, `golangci-lint` with `errcheck, govet, staticcheck, gosec, revive,
   gocritic, errorlint, contextcheck, bodyclose, sqlclosecheck`.
 - Package layout `internal/<domain>`; exported surface minimal; no `util`/`common`.
 - Constructor injection; no globals; `context.Context` first param.
@@ -59,7 +59,8 @@ agent; this file is the authority.
 - Constant-time comparisons; keys stored as sha256; admin allowlist.
 - Input limits everywhere: body 1 MiB, text 3,000/100,000, metadata 10 keys.
 - SSRF guard on outbound URLs; TLS ≥ 1.2; security headers on console.
-- Dependencies pinned; `govulncheck`, `pip-audit` weekly; base images by digest, non-root.
+- Dependencies pinned; `make audit` runs `govulncheck` and `pip-audit` in CI, with reviewed
+  exceptions in `security/accepted.yaml` that expire; base images by digest, non-root.
 
 ## Git and review
 

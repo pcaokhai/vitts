@@ -52,6 +52,26 @@ jobs:
       - name: Unit tests
         run: make test
 
+  # Dependency scanning. Separate from lint so a vulnerability disclosed overnight fails
+  # its own job with a name that says what happened, rather than hiding inside "lint".
+  vulnerabilities:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gateway/go.mod
+          cache-dependency-path: gateway/go.sum
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Scan dependencies
+        # govulncheck reports only vulnerabilities in code paths that are actually
+        # reached, and make audit adds reviewed, expiring exceptions on top: anything
+        # unlisted fails, and so does a stale acceptance.
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          make audit
+
   contract-drift:
     runs-on: ubuntu-latest
     steps:

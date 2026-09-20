@@ -1,0 +1,19 @@
+# Accepted vulnerability findings.
+#
+# An entry here means someone looked at the finding, decided it does not apply to what we
+# ship, and put their reasoning in writing with a date by which it must be looked at
+# again. `make audit` fails on any finding that is not listed, and equally on any listed
+# finding whose review date has passed — an exception that cannot expire is a permanently
+# disabled check with extra steps.
+accepted:
+  - id: GO-2026-6443
+    summary: gRPC server panic via missing :authority or Host headers
+    reason: >
+      The advisory affects gRPC servers running the xDS routing interceptor. The gateway
+      is a gRPC client only: the sole call path govulncheck reports
+      (internal/dispatch/fakeworker) is a test double, production registers no gRPC
+      service, and no xDS routing is configured anywhere. There is no stable release
+      carrying the fix yet — it exists only in v1.85.0-dev — so pinning to it would mean
+      shipping an unreleased dependency to avoid a path we do not execute.
+    review_by: 2026-12-01
+    action: upgrade to google.golang.org/grpc v1.85.0 or later once it is released

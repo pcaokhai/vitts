@@ -1,0 +1,151 @@
+# Production overlay. Apply on top of the base file:
+#
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up -d
+#
+# What changes from development, and why:
+#   - secrets come from the environment, never from a committed .env, and the stack
+#     refuses to start when one is missing rather than falling back to a dev default
+#   - nothing that does not need a public port publishes one
+#   - containers run read-only with an explicit tmpfs, so a write outside the paths
+#     listed here is a bug that surfaces immediately instead of persisting
+#   - every service has a memory limit, so one runaway cannot take the host down
+#   - logs are bounded, so a chatty incident cannot fill the disk
+services:
+  gateway:
+    environment:
+      VITTS_ENV: prod
+      VITTS_DATABASE_URL: ${VITTS_DATABASE_URL:?set from the secret store}
+      VITTS_REDIS_URL: ${VITTS_REDIS_URL:?set from the secret store}
+      VITTS_ADMIN_KEY: ${VITTS_ADMIN_KEY:?set from the secret store}
+      VITTS_ADMIN_IP_ALLOWLIST: ${VITTS_ADMIN_IP_ALLOWLIST:?set the operator network}
+      VITTS_WEBHOOK_SIGNING_SECRET: ${VITTS_WEBHOOK_SIGNING_SECRET:?set from the secret store}
+      VITTS_S3_ENDPOINT: ${VITTS_S3_ENDPOINT:?set the storage endpoint}
+      VITTS_S3_PUBLIC_ENDPOINT: ${VITTS_S3_PUBLIC_ENDPOINT:?set the endpoint customers reach}
+      VITTS_S3_BUCKET: ${VITTS_S3_BUCKET:?set the bucket}
+      VITTS_S3_ACCESS_KEY: ${VITTS_S3_ACCESS_KEY:?set from the secret store}
+      VITTS_S3_SECRET_KEY: ${VITTS_S3_SECRET_KEY:?set from the secret store}
+      VITTS_LOG_LEVEL: ${VITTS_LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  # The migrations job runs once per deploy and needs only the database.
+  migrate:
+    environment:
+      VITTS_DATABASE_URL: ${VITTS_DATABASE_URL:?set from the secret store}
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    restart: "no"
+
+  worker:
+    environment:
+      VITTS_MODEL_REVISION: ${VITTS_MODEL_REVISION:?pin a commit hash, never main}
+      VITTS_MODEL_MIRROR_S3: ${VITTS_MODEL_MIRROR_S3:-}
+      VITTS_S3_ENDPOINT: ${VITTS_S3_ENDPOINT:?set the storage endpoint}
+      VITTS_S3_BUCKET: ${VITTS_S3_BUCKET:?set the bucket}
+      VITTS_S3_ACCESS_KEY: ${VITTS_S3_ACCESS_KEY:?set from the secret store}
+      VITTS_S3_SECRET_KEY: ${VITTS_S3_SECRET_KEY:?set from the secret store}
+      ORT_INTRA_OP_THREADS: ${ORT_INTRA_OP_THREADS:-8}
+    # Not read-only: onnxruntime and huggingface_hub write into the model directory,
+    # which is a named volume. Everything else is tmpfs.
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    restart: unless-stopped
+    # Nothing outside the compose network talks to the worker: it is reached over gRPC
+    # by the gateway alone (docs/07-permissions.md).
+    ports: !reset []
+    deploy:
+      resources:
+        limits:
+          # The model plus one inference session; measured around 1.5 GB resident.
+          memory: 4G
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  postgres:
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set from the secret store}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set from the secret store}
+      POSTGRES_DB: ${POSTGRES_DB:-vitts}
+    # Not reachable from outside the network; the pre-go-live checklist requires this.
+    ports: !reset []
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  redis:
+    # Bounded memory with an eviction policy: every key the gateway stores in Redis is a
+    # cache or a lease that can be rebuilt, so evicting beats running out (ADR-005).
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - ${VITTS_REDIS_MAXMEMORY:-512mb}
+      - --maxmemory-policy
+      - allkeys-lru
+    ports: !reset []
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  minio:
+    environment:
+      MINIO_ROOT_USER: ${VITTS_S3_ACCESS_KEY:?set from the secret store}
+      MINIO_ROOT_PASSWORD: ${VITTS_S3_SECRET_KEY:?set from the secret store}
+    # The S3 API port stays published because signed download URLs point at it
+    # (VITTS_S3_PUBLIC_ENDPOINT), so customers must be able to reach it. It belongs
+    # behind TLS termination; the admin console on 9001 is closed outright.
+    ports:
+      - "${VITTS_S3_PORT:-9000}:9000"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  prometheus:
+    ports: !reset []
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  grafana:
+    environment:
+      GF_SECURITY_ADMIN_USER: ${VITTS_GRAFANA_USER:?set from the secret store}
+      GF_SECURITY_ADMIN_PASSWORD: ${VITTS_GRAFANA_PASSWORD:?set from the secret store}
+      # Anonymous viewing is a development convenience; production sits behind SSO.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports: !reset []
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }

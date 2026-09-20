@@ -117,6 +117,10 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-98 | US-18 | Dashboard is provisioned | Grafana loads the committed dashboard JSON at startup | live stack | manual | done (3.1) | no |
 | T-99 | ADR-007 | Queue is bounded | an overloaded dispatcher refuses in microseconds rather than after the class budget | `internal/dispatch/queue_test.go` | unit | done (3.2) | yes |
 | T-100 | ADR-007 | Free capacity is never refused | while a slot is free every caller is admitted | `internal/dispatch/queue_test.go` | unit | done (3.2) | yes |
+| T-101 | US-19 | Images are pinned and non-root | every FROM and compose image carries a digest; gateway runs as nonroot with no shell; worker as uid 10001 | live inspection | manual | done (3.3) | no |
+| T-102 | US-19 | Production config fails closed | the overlay refuses to render when a secret is unset | `make prod-config` | manual | done (3.3) | no |
+| T-103 | US-19 | Dependency scanning gates merges | govulncheck and pip-audit run in CI; unreviewed findings fail | `.github/workflows/ci.yml`, `scripts/audit.sh` | ci | done (3.3) | yes |
+| T-104 | NFR-12 | Exceptions expire | an accepted finding past its review_by date fails the audit | `scripts/audit.sh`, `security/accepted.yaml` | ci | done (3.3) | yes |
 | T-26 | US-02 | Stack smoke | `make up` → worker healthy; one streamed synthesis, frames ordered, `last=true` present | `scripts/smoke.sh` | e2e | done (0.6, gateway leg 1.1) | no |
 | T-25 | US-01 | First frame latency | TTFA ≤ 150 ms for a 21-char input on the bench machine | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.4) | no |
 | T-24 | NFR-06 | Worker config validation | missing revision / partial `VITTS_S3_*` → exit non-zero with a named variable | `worker/tests/test_config.py` | unit | done (0.3) | yes |

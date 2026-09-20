@@ -12,7 +12,7 @@ No secret is ever bundled into a client, image layer, or log line.
 | `VITTS_HTTP_ADDR` | http | server | env | — | low |
 | `VITTS_DATABASE_URL` | storage | server | secret store | quarterly | high (data) |
 | `VITTS_REDIS_URL` | storage | server | secret store | quarterly | medium |
-| `VITTS_S3_ENDPOINT` / `_BUCKET` / `_REGION` | storage | server | env | — | low |
+| `VITTS_S3_ENDPOINT` / `_PUBLIC_ENDPOINT` / `_BUCKET` / `_REGION` | storage | server | env | — | low |
 | `VITTS_S3_ACCESS_KEY` / `_SECRET_KEY` | storage | server | secret store | quarterly | high |
 | `VITTS_WORKER_ADDRS` | dispatch | server | env / DNS | — | low |
 | `VITTS_ADMIN_KEY` | admin | server | secret store | on operator change | critical |
