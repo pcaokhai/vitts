@@ -28,6 +28,17 @@ generate: ## Regenerate proto, OpenAPI and sqlc code (CI fails on diff)
 	@if [ -f proto/buf.gen.yaml ]; then cd proto && buf generate && python3 ../scripts/postgen.py; else $(call pending,0.2,proto stubs); fi
 	@if [ -f gateway/sqlc.yaml ]; then cd gateway && sqlc generate; else $(call pending,1.2,sqlc); fi
 	@cp docs/api/openapi.yaml gateway/api/openapi.yaml
+	# SDK types come from the same contract, so an endpoint that changes without the SDKs
+	# following it fails contract-drift rather than a customer's build (3.6).
+	@if [ -d sdk/js/node_modules ]; then \
+		sdk/js/node_modules/.bin/openapi-typescript docs/api/openapi.yaml -o sdk/js/src/types.gen.ts >/dev/null; \
+	else $(call pending,3.6,JS SDK types); fi
+	@if [ -d sdk/python/.venv ]; then cd sdk/python && uv run --quiet datamodel-codegen \
+		--input ../../docs/api/openapi.yaml --input-file-type openapi --output vitts/models.py \
+		--output-model-type pydantic_v2.BaseModel --target-python-version 3.10 \
+		--use-schema-description --field-constraints --disable-timestamp \
+		--formatters ruff-format --enum-field-as-literal all 2>/dev/null; \
+	else $(call pending,3.6,Python SDK models); fi
 
 # Same scanners CI runs, so a vulnerability is found before the push rather than after.
 audit: ## Scan dependencies for known vulnerabilities (reviewed exceptions in security/)
@@ -39,11 +50,15 @@ lint: ## golangci-lint, ruff, mypy, buf lint
 	@if [ -f gateway/go.mod ]; then cd gateway && golangci-lint run ./...; else $(call pending,1.1,golangci-lint); fi
 	@if [ -f worker/pyproject.toml ]; then cd worker && uv run ruff check . && uv run ruff format --check . && uv run mypy .; else $(call pending,0.3,ruff + mypy); fi
 	@if [ -d console/node_modules ]; then cd console && npm run --silent lint; else $(call pending,3.5,console eslint + tsc); fi
+	@if [ -d sdk/js/node_modules ]; then cd sdk/js && npm run --silent lint; else $(call pending,3.6,JS SDK tsc); fi
+	@if [ -d sdk/python/.venv ]; then cd sdk/python && uv run ruff check . && uv run ruff format --check . && uv run mypy vitts/; else $(call pending,3.6,Python SDK ruff + mypy); fi
 
 test: ## Unit tests, both languages
 	@if [ -f gateway/go.mod ]; then cd gateway && $(GOTEST) ./...; else $(call pending,1.1,go test); fi
 	@if [ -f worker/pyproject.toml ]; then cd worker && uv run pytest; else $(call pending,0.3,pytest); fi
 	@if [ -d console/node_modules ]; then cd console && npm run --silent test; else $(call pending,3.5,console tests); fi
+	@if [ -d sdk/js/node_modules ]; then cd sdk/js && npm run --silent test; else $(call pending,3.6,JS SDK tests); fi
+	@if [ -d sdk/python/.venv ]; then cd sdk/python && uv run pytest -q; else $(call pending,3.6,Python SDK tests); fi
 
 # Same code path as the deploy's migrations job: the binary carries the migrations.
 migrate: ## Apply database migrations to VITTS_DATABASE_URL

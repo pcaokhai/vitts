@@ -35,8 +35,11 @@ jobs:
       - name: Add GOPATH/bin to PATH
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      - name: Console dependencies
-        run: npm ci --prefix console
+      - name: Console and SDK dependencies
+        run: |
+          npm ci --prefix console
+          npm ci --prefix sdk/js
+          uv sync --project sdk/python
 
       - name: Lint
         run: make lint
@@ -52,10 +55,21 @@ jobs:
           go-version-file: gateway/go.mod
           cache-dependency-path: gateway/go.sum
       - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: console/package-lock.json
       - name: Toolchain
         run: make setup
       - name: Add GOPATH/bin to PATH
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Console and SDK dependencies
+        run: |
+          npm ci --prefix console
+          npm ci --prefix sdk/js
+          uv sync --project sdk/python
 
       - name: Unit tests
         run: make test
@@ -93,6 +107,18 @@ jobs:
         run: make setup
       - name: Add GOPATH/bin to PATH
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      # The SDK toolchains must be present, or `make generate` skips their types and the
+      # drift check proves nothing about them (3.6).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sdk/js/package-lock.json
+      - name: SDK toolchains
+        run: |
+          npm ci --prefix sdk/js
+          uv sync --project sdk/python
 
       - name: Regenerate contracts
         run: make generate

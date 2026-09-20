@@ -1,0 +1,20 @@
+{
+  "name": "@vitts/sdk",
+  "version": "0.1.0",
+  "description": "Thin client for the ViTTS Vietnamese speech API.",
+  "type": "module",
+  "license": "MIT",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types src/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "24.7.0",
+    "openapi-typescript": "7.9.1",
+    "typescript": "5.9.2"
+  }
+}

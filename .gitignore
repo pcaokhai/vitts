@@ -39,3 +39,10 @@ node_modules/
 /console/node_modules/
 /console/.next/
 /console/next-env.d.ts
+
+# SDKs: dependencies and build output.
+/sdk/js/node_modules/
+/sdk/js/dist/
+/sdk/python/.venv/
+/console/tsconfig.tsbuildinfo
+/sdk/js/tsconfig.tsbuildinfo

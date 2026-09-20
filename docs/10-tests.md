@@ -129,6 +129,11 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-113 | F-12 | The API's own words reach the screen | ApiError carries `detail`; usageRange covers n days inclusive and crosses months | `console/src/lib/api.test.ts` | unit | done (3.5) | yes |
 | T-114 | ADR-009 | Usage JSON is the contract | the response keys match docs/api/openapi.yaml § UsageReport | `internal/usage/report_test.go` | unit | done (3.5) | yes |
 | T-115 | US-16 | Quiet days are days | a sparse series is filled across the requested range, so one busy day does not fill the chart | `console/src/lib/chart.test.ts` | unit | done (3.5) | yes |
+| T-116 | NFR-07 | The key never leaves the header | both SDKs send Bearer auth and never put the key in a URL | `sdk/js/src/client.test.ts`, `sdk/python/tests/test_client.py` | unit | done (3.6) | yes |
+| T-117 | NFR-05 | Clients honour Retry-After | 429 and 503 are retried for the interval the API gave, bounded; nothing else is retried | both SDK test files | unit | done (3.6) | yes |
+| T-118 | NFR-06 | SDK streams stay ordered | chunks arrive in order; abandoning the stream closes the body; a refused stream raises instead of yielding the error | both SDK test files | unit | done (3.6) | yes |
+| T-119 | US-14 | SDKs cannot duplicate a job | createJob always sends an Idempotency-Key, generated when the caller omits one | both SDK test files | unit | done (3.6) | yes |
+| T-120 | ADR-009 | SDK types cannot drift | `make generate` rebuilds both SDKs' types from openapi.yaml; contract-drift fails on any diff | `Makefile`, CI | contract | done (3.6) | yes |
 | T-109 | NFR-05 | Waiter wakes without a release | capacity returns via a health snapshot with no release signal → the waiter is admitted, not left to its budget | `internal/dispatch/queue_test.go` | unit | done (3.4) | yes |
 | T-108 | US-03 | Stuck segmenting resumes | a job left in `segmenting` by a dead orchestrator is picked up and completed, not re-queued forever | `internal/jobs/orchestrator_test.go` | unit | done (3.4) | yes |
 | T-104 | NFR-12 | Exceptions expire | an accepted finding past its review_by date fails the audit | `scripts/audit.sh`, `security/accepted.yaml` | ci | done (3.3) | yes |
@@ -150,6 +155,9 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 6. The console has no browser test. Its pure logic is covered (T-112, T-113, T-115) and
    the flows were driven by hand against the live stack in 3.5, but sign in, create and
    revoke deserve a Playwright run in CI before the console has a second screen.
-7. No test restarts a dependency mid-suite. T-105 flushes Redis' script cache, which is
+7. The SDKs were exercised against the live stack by hand in 3.6 (sync, stream, job to
+   completion, in both languages). That run is not automated; an integration job that
+   installs both packages and hits a running gateway belongs with the browser tests.
+8. No test restarts a dependency mid-suite. T-105 flushes Redis' script cache, which is
    the part that bit us, but a real restart also drops connections; a chaos step in the
    integration suite would have caught finding 1 a milestone earlier.

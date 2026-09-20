@@ -15,4 +15,7 @@ paths = [
   '''^console/node_modules/''',
   '''^\.gstack/''',
   '''^worker/\.venv/''',
+  '''^sdk/js/node_modules/''',
+  '''^sdk/js/dist/''',
+  '''^sdk/python/\.venv/''',
 ]

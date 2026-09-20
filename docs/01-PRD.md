@@ -91,7 +91,7 @@ Console shows usage by day and lets the tenant revoke keys. See `06-flows.md`.
 | F-11 | Webhook on job completion, HMAC-signed | Should |
 | F-12 | Minimal web console (keys, usage, docs) | Should |
 | F-13 | Output resampling (8/16/24/48 kHz) | Should |
-| F-14 | Python and JS SDKs | Could |
+| F-14 | Python and JS SDKs | Could — **done (3.6)**, not published |
 | F-15 | Tenant-scoped custom voice latents (when vendor provides `.npz`) | Later |
 
 ### 7.3 Non-functional requirements

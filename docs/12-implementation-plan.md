@@ -56,7 +56,7 @@ passes locally where applicable. Do not start a task whose dependencies are unme
 | 3.3 | Prod compose, secrets from env store, non-root images, digest pins, `govulncheck`/`pip-audit`/`gitleaks` in CI | M2 | US-19 | done this PR |
 | 3.4 | Runbook drills: worker replace, Redis restart, restore from backup (T-20) | 3.3 | 13-runbook |
 | 3.5 | Minimal console (Next.js, own container per ADR-012): login via key, usage chart, key management | 2.6,2.7 | F-12 |
-| 3.6 | Python + JS SDK thin clients generated from OpenAPI; docs site | 1.14 | F-14 |
+| 3.6 | Python + JS SDK thin clients over generated types; docs at `/docs` in the console | 1.14 | F-14 |
 
 ## M4 — Post-launch
 

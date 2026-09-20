@@ -655,3 +655,127 @@
     margin-block-start: 0.5rem;
   }
 }
+
+/* ---------- docs ---------- */
+
+.prose {
+  max-inline-size: 46rem;
+}
+
+.doc-head {
+  margin-block-end: 3rem;
+  padding-block-end: 2rem;
+  border-block-end: 1px solid var(--ink);
+}
+
+.doc-title {
+  margin: 0 0 0.75rem;
+  font-size: var(--text-title);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.doc-lede {
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+.doc-h2 {
+  margin: 3rem 0 0.75rem;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.doc-body {
+  margin: 0 0 1.25rem;
+  color: var(--ink-muted);
+}
+
+.doc-body code,
+.error-row code {
+  padding: 0.1em 0.3em;
+  background: var(--paper-sunk);
+  border: 1px solid var(--rule);
+  font-size: 0.9em;
+}
+
+.code {
+  margin: 0 0 1.5rem;
+  border: 1px solid var(--rule-strong);
+}
+
+.code-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0.5rem 0.5rem 0;
+  border-block-end: 1px solid var(--rule-strong);
+  background: var(--paper-sunk);
+}
+
+.code-bar .range {
+  border: 0;
+  border-inline-end: 1px solid var(--rule-strong);
+}
+
+.code-block {
+  margin: 0;
+  padding: 1rem 1.1rem;
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.7;
+  tab-size: 2;
+}
+
+.error-list {
+  margin: 0;
+  border-block-start: 1px solid var(--rule);
+}
+
+.error-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 12rem) 1fr;
+  gap: 1rem;
+  padding-block: 0.7rem;
+  border-block-end: 1px solid var(--rule);
+}
+
+.error-row dt {
+  color: var(--lacquer);
+  font-size: var(--text-sm);
+}
+
+.error-row dd {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
+.endpoint-table {
+  table-layout: auto;
+}
+
+.endpoint-path {
+  white-space: nowrap;
+  font-size: var(--text-xs);
+}
+
+.method {
+  color: var(--lacquer);
+  font-weight: 600;
+}
+
+@media (max-width: 40rem) {
+  .error-row {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+
+  .code-bar {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+}
