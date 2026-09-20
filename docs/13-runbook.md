@@ -87,9 +87,9 @@ overrun in production, so the threshold comes from a real duration.
 
 ## Verifying a deploy by hand
 
-`docs/15-manual-test-guide.md` walks every feature with its pass criterion. After a
-release, sections 1 (health), 5 (refusals) and 16 (resilience) are the ones worth
-repeating: they cover what breaks quietly rather than loudly.
+`docs/manual-tests/` walks every feature with its pass criterion, in twelve numbered
+files. After a release, files 2 (health), 4 (limits) and 10 (resilience drills) are the
+ones worth repeating: they cover what breaks quietly rather than loudly.
 
 ## Incident template
 

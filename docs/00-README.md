@@ -23,7 +23,7 @@ in the same PR.
 | 12 | `12-implementation-plan.md` | Milestones and task order for Claude Code | Engineering |
 | 13 | `13-runbook.md` | Operating the system: deploy, alerts, incidents | Ops |
 | 14 | `14-engineering-standards.md` | Coding, testing, review, and git standards | Engineering |
-| 15 | `15-manual-test-guide.md` | Exercising every feature by hand, with pass criteria | Engineering, QA |
+| 15 | `manual-tests/` | Exercising every feature by hand, twelve numbered sessions with pass criteria | Engineering, QA |
 | — | `plans/` | Per-task implementation plans written before the code | Engineering |
 | — | `reports/` | Measured results and milestone close-outs | Engineering |
 
