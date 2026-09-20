@@ -17,6 +17,7 @@ import (
 	"github.com/pcaokhai/vitts/gateway/internal/cache"
 	"github.com/pcaokhai/vitts/gateway/internal/dispatch"
 	workerpb "github.com/pcaokhai/vitts/gateway/internal/gen/workerpb"
+	"github.com/pcaokhai/vitts/gateway/internal/telemetry"
 	"github.com/pcaokhai/vitts/gateway/internal/voices"
 )
 
@@ -87,6 +88,36 @@ type Service struct {
 	plans      PlanAllowance
 	meter      Meter
 	logger     zerolog.Logger
+	metrics    *telemetry.Metrics
+}
+
+// SetMetrics attaches the instrument set. Separate from the constructor because metrics
+// are optional: tests run without them, and a nil set means the service records nothing.
+func (s *Service) SetMetrics(metrics *telemetry.Metrics) { s.metrics = metrics }
+
+// observe records what one synthesis cost, in the shape US-18 asks for.
+func (s *Service) observe(mode string, tenantID uuid.UUID, chars int64, ttfaMS, durationMS int32, elapsed time.Duration, cached bool) {
+	if s.metrics == nil {
+		return
+	}
+
+	result := "miss"
+	if cached {
+		result = "hit"
+	}
+	s.metrics.CacheTotal.WithLabelValues(result).Inc()
+	s.metrics.UsageCharsTotal.
+		WithLabelValues(telemetry.TenantLabel(tenantID.String()), mode).
+		Add(float64(chars))
+
+	if ttfaMS > 0 {
+		s.metrics.TTFASeconds.WithLabelValues(mode).Observe(telemetry.MillisecondsToSeconds(ttfaMS))
+	}
+	// RTF is only meaningful for work we actually did: a cache hit would report a
+	// flattering number that says nothing about the fleet.
+	if !cached && durationMS > 0 {
+		s.metrics.RTF.WithLabelValues(mode).Observe(elapsed.Seconds() / (float64(durationMS) / 1000))
+	}
 }
 
 // NewService wires the use case.
@@ -160,6 +191,7 @@ func (s *Service) fromCache(ctx context.Context, req Request, key cache.Key, voi
 	// A hit still bills: the tenant received the audio, and cache economics are ours,
 	// not theirs (ADR-006).
 	s.bill(ctx, req, key, voice, entry.DurationMS, true, "ok")
+	s.observe("sync", req.TenantID, req.Chars(), 0, entry.DurationMS, 0, true)
 
 	return Result{
 		Audio: wav, DurationMS: entry.DurationMS, SampleRate: req.SampleRate,
@@ -244,6 +276,7 @@ func (s *Service) fromWorker(ctx context.Context, req Request, key cache.Key, vo
 	}
 
 	s.billWithTTFA(ctx, req, key, voice, durationMS, ttfaMS, false, "ok")
+	s.observe("sync", req.TenantID, req.Chars(), ttfaMS, durationMS, time.Since(started), false)
 
 	wav, err := wrap(pcm.Bytes(), req.SampleRate)
 	if err != nil {

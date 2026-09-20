@@ -24,7 +24,7 @@ func dispatcherWith(t *testing.T, slots int32) (*dispatch.Dispatcher, *fakeworke
 	pool := startPool(t, servers...)
 	eventually(t, func() bool { return pool.Ready(context.Background()) == nil }, "pool never ready")
 
-	return dispatch.NewDispatcher(pool), servers[0]
+	return dispatch.NewDispatcher(pool, nil), servers[0]
 }
 
 func TestReserveSucceedsWhenTheFleetHasCapacity(t *testing.T) {
@@ -182,7 +182,7 @@ func TestNoReadyWorkerIsOverloadNotAPanic(t *testing.T) {
 	servers := startWorkers(t, 1)
 	servers[0].SetHealth(&workerpb.HealthResponse{Ready: false})
 	pool := startPool(t, servers...)
-	d := dispatch.NewDispatcher(pool)
+	d := dispatch.NewDispatcher(pool, nil)
 	d.SetWaitForTest(func(dispatch.Class) time.Duration { return 10 * time.Millisecond })
 
 	_, err := d.Reserve(context.Background(), dispatch.ClassStream)

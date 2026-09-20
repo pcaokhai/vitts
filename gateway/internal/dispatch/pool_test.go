@@ -51,7 +51,7 @@ func startPool(t *testing.T, servers ...*fakeworker.Server) *dispatch.Pool {
 	}
 
 	// Production timings are seconds; the tests drive the same state machine faster.
-	pool, err := dispatch.NewPool(addrs, zerolog.New(io.Discard), fastOptions)
+	pool, err := dispatch.NewPool(addrs, zerolog.New(io.Discard), fastOptions, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, pool.Close()) })
 
@@ -62,7 +62,7 @@ func startPool(t *testing.T, servers ...*fakeworker.Server) *dispatch.Pool {
 func TestPoolNeedsAtLeastOneAddress(t *testing.T) {
 	t.Parallel()
 
-	_, err := dispatch.NewPool(nil, zerolog.New(io.Discard), dispatch.Options{})
+	_, err := dispatch.NewPool(nil, zerolog.New(io.Discard), dispatch.Options{}, nil)
 
 	require.Error(t, err)
 }
@@ -71,7 +71,7 @@ func TestPoolBootsWithAnUnreachableWorker(t *testing.T) {
 	t.Parallel()
 
 	// A gateway must start and report itself unready, not refuse to boot (FL-06).
-	pool, err := dispatch.NewPool([]string{"127.0.0.1:1"}, zerolog.New(io.Discard), fastOptions)
+	pool, err := dispatch.NewPool([]string{"127.0.0.1:1"}, zerolog.New(io.Discard), fastOptions, nil)
 
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, pool.Close()) })
@@ -219,7 +219,7 @@ func TestCloseIsIdempotent(t *testing.T) {
 
 	servers := startWorkers(t, 1)
 	addrs := []string{servers[0].Addr()}
-	pool, err := dispatch.NewPool(addrs, zerolog.New(io.Discard), fastOptions)
+	pool, err := dispatch.NewPool(addrs, zerolog.New(io.Discard), fastOptions, nil)
 	require.NoError(t, err)
 	pool.Start(context.Background())
 

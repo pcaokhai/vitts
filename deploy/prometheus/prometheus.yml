@@ -1,0 +1,22 @@
+# Local observability stack. Production scrapes the same targets through service
+# discovery; the rules below are the deployable artefact either way.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    env: dev
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: gateway
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["gateway:8080"]
+        labels:
+          service: vitts-gateway
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

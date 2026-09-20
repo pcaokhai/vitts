@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/pcaokhai/vitts/gateway/internal/telemetry"
 )
 
 // Class is a priority class (ADR-007). Streams are interactive and outrank sync
@@ -76,7 +78,8 @@ func (r *Reservation) Release() {
 // It is the only place that decides whether a request runs now, waits, or is refused.
 // Selection of *which* worker belongs to Pool; this decides *whether*.
 type Dispatcher struct {
-	pool *Pool
+	pool    *Pool
+	metrics *telemetry.Metrics
 
 	mu sync.Mutex
 	// inFlight counts reservations currently held, by class.
@@ -97,10 +100,11 @@ type Dispatcher struct {
 // are plausible rather than wild.
 const initialServiceTime = time.Second
 
-// NewDispatcher wires the dispatcher to a pool.
-func NewDispatcher(pool *Pool) *Dispatcher {
+// NewDispatcher wires the dispatcher to a pool. Metrics may be nil in tests.
+func NewDispatcher(pool *Pool, metrics *telemetry.Metrics) *Dispatcher {
 	return &Dispatcher{
 		pool:        pool,
+		metrics:     metrics,
 		inFlight:    make(map[Class]int),
 		waiting:     make(map[Class]int),
 		serviceTime: initialServiceTime,
@@ -144,12 +148,14 @@ func (o *Overload) Unwrap() error { return ErrOverloaded }
 // failure ADR-007 exists to prevent.
 func (d *Dispatcher) Reserve(ctx context.Context, class Class) (*Reservation, error) {
 	deadline := time.Now().Add(d.waitFor(class))
+	queued := time.Now()
 
 	d.enter(class)
 	defer d.leave(class)
 
 	for {
 		if reservation, ok := d.tryReserve(class); ok {
+			d.observeWait(class, time.Since(queued))
 			return reservation, nil
 		}
 
@@ -249,7 +255,18 @@ func (d *Dispatcher) releaseSlot(class Class, elapsed time.Duration) {
 func (d *Dispatcher) enter(class Class) {
 	d.mu.Lock()
 	d.waiting[class]++
+	depth := d.waiting[class]
 	d.mu.Unlock()
+
+	if d.metrics != nil {
+		d.metrics.QueueDepth.WithLabelValues(class.String()).Set(float64(depth))
+	}
+}
+
+func (d *Dispatcher) observeWait(class Class, waited time.Duration) {
+	if d.metrics != nil {
+		d.metrics.QueueWaitSeconds.WithLabelValues(class.String()).Observe(waited.Seconds())
+	}
 }
 
 func (d *Dispatcher) leave(class Class) {
@@ -258,7 +275,12 @@ func (d *Dispatcher) leave(class Class) {
 	if d.waiting[class] < 0 {
 		d.waiting[class] = 0
 	}
+	depth := d.waiting[class]
 	d.mu.Unlock()
+
+	if d.metrics != nil {
+		d.metrics.QueueDepth.WithLabelValues(class.String()).Set(float64(depth))
+	}
 }
 
 // overload builds the refusal, including how long the caller should wait.
@@ -267,6 +289,10 @@ func (d *Dispatcher) leave(class Class) {
 // acceptance criterion 3): unbounded values would park a client for minutes, and a
 // missing one invites an immediate retry into the same refusal.
 func (d *Dispatcher) overload(class Class) error {
+	if d.metrics != nil {
+		d.metrics.Overloaded.WithLabelValues(class.String()).Inc()
+	}
+
 	d.mu.Lock()
 	waiting := d.waiting[class]
 	total, _ := d.capacity()

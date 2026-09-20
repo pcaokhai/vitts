@@ -21,6 +21,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/pcaokhai/vitts/gateway/internal/jobs"
+	"github.com/pcaokhai/vitts/gateway/internal/telemetry"
 )
 
 // Webhook headers and delivery policy (US-15).
@@ -64,7 +65,17 @@ type Dispatcher struct {
 	guard   jobs.WebhookGuard
 	secret  []byte
 	logger  zerolog.Logger
+	metrics *telemetry.Metrics
 	attempt func(ctx context.Context, d time.Duration) error
+}
+
+// SetMetrics attaches the instrument set. Optional, so tests run without one.
+func (d *Dispatcher) SetMetrics(metrics *telemetry.Metrics) { d.metrics = metrics }
+
+func (d *Dispatcher) countAttempt(outcome string) {
+	if d.metrics != nil {
+		d.metrics.WebhookAttempts.WithLabelValues(outcome).Inc()
+	}
 }
 
 // NewDispatcher wires the dispatcher.
@@ -111,6 +122,7 @@ func (d *Dispatcher) deliver(ctx context.Context, job jobs.Job) {
 
 		status, err := d.post(ctx, job, payload, attempt)
 		if err == nil && status >= 200 && status < 300 {
+			d.countAttempt("delivered")
 			d.logger.Info().Str("job_id", job.ID.String()).
 				Int("attempt", attempt).Int("status", status).Msg("webhook delivered")
 			return
@@ -123,6 +135,7 @@ func (d *Dispatcher) deliver(ctx context.Context, job jobs.Job) {
 			event = event.Int("status", status)
 		}
 		event.Msg("webhook attempt failed")
+		d.countAttempt("failed")
 
 		if attempt == MaxAttempts {
 			break

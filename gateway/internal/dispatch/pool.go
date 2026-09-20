@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 
 	workerpb "github.com/pcaokhai/vitts/gateway/internal/gen/workerpb"
+	"github.com/pcaokhai/vitts/gateway/internal/telemetry"
 )
 
 // ErrNoWorker means no worker can take a request right now: all are ejected, still
@@ -50,6 +51,7 @@ type Pool struct {
 	workers []*worker
 	logger  zerolog.Logger
 	opts    Options
+	metrics *telemetry.Metrics
 
 	stop     chan struct{}
 	stopped  sync.WaitGroup
@@ -59,7 +61,7 @@ type Pool struct {
 
 // NewPool dials every address. It does not wait for any worker to be ready: a gateway
 // must boot and report itself unready rather than refuse to start (FL-06).
-func NewPool(addrs []string, logger zerolog.Logger, opts Options) (*Pool, error) {
+func NewPool(addrs []string, logger zerolog.Logger, opts Options, metrics *telemetry.Metrics) (*Pool, error) {
 	if len(addrs) == 0 {
 		return nil, errors.New("no worker addresses configured")
 	}
@@ -81,6 +83,7 @@ func NewPool(addrs []string, logger zerolog.Logger, opts Options) (*Pool, error)
 		workers: workers,
 		logger:  logger,
 		opts:    opts,
+		metrics: metrics,
 		stop:    make(chan struct{}),
 	}, nil
 }
@@ -125,10 +128,28 @@ func (p *Pool) probeDue(ctx context.Context, now time.Time) {
 
 			before := w.snapshot()
 			w.probe(ctx)
-			p.logTransition(before, w.snapshot())
+			after := w.snapshot()
+			p.logTransition(before, after)
+			p.observe(after)
 		}(w)
 	}
 	wg.Wait()
+}
+
+// observe publishes a worker's state, so a saturated or ejected worker is visible on a
+// dashboard rather than only in a log line.
+func (p *Pool) observe(snap Snapshot) {
+	if p.metrics == nil {
+		return
+	}
+
+	ready := 0.0
+	if snap.Ready && !snap.Ejected {
+		ready = 1
+	}
+	p.metrics.WorkerReady.WithLabelValues(snap.Addr).Set(ready)
+	p.metrics.WorkerSlotsBusy.WithLabelValues(snap.Addr).Set(float64(snap.SlotsBusy))
+	p.metrics.WorkerSlotsTotal.WithLabelValues(snap.Addr).Set(float64(snap.SlotsTotal))
 }
 
 func (p *Pool) logTransition(before, after Snapshot) {

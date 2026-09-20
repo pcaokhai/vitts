@@ -101,6 +101,7 @@ func (s *Service) Stream(
 			status = "client_cancelled"
 		}
 		s.meterStream(context.WithoutCancel(ctx), req, key, voice, result, status)
+		s.observe("stream", req.TenantID, result.CharsBilled, result.TTFAMS, result.DurationMS, 0, true)
 		return result, nil
 	}
 
@@ -250,6 +251,7 @@ func (s *Service) streamFromWorker(
 
 	result := StreamResult{DurationMS: durationMS, TTFAMS: ttfaMS, CharsBilled: req.Chars()}
 	s.meterStream(ctx, req, key, voice, result, "ok")
+	s.observe("stream", req.TenantID, result.CharsBilled, ttfaMS, durationMS, time.Since(started), false)
 	return result, nil
 }
 

@@ -97,6 +97,7 @@ func run() error {
 	}
 
 	logger := telemetry.NewOSLogger(cfg.LogLevel, cfg.Env == config.EnvDev)
+	metrics := telemetry.NewMetrics()
 
 	// Signals are trapped before anything long-running starts, so a Ctrl-C during
 	// startup is honoured rather than swallowed.
@@ -134,7 +135,7 @@ func run() error {
 	// Reconcile runs for the life of the process; ctx is cancelled on shutdown.
 	go quota.NewReconciler(quotas, postgres.NewUsageRepository(pool), logger).Run(ctx)
 
-	workers, err := dispatch.NewPool(cfg.WorkerAddrs, logger, dispatch.Options{})
+	workers, err := dispatch.NewPool(cfg.WorkerAddrs, logger, dispatch.Options{}, metrics)
 	if err != nil {
 		return fmt.Errorf("worker pool: %w", err)
 	}
@@ -156,7 +157,7 @@ func run() error {
 	meter.Start()
 	defer meter.Stop()
 
-	dispatcher := dispatch.NewDispatcher(workers)
+	dispatcher := dispatch.NewDispatcher(workers, metrics)
 	synthesizer := synth.NewService(
 		synth.NewQuotaAdapter(quotas),
 		cacheManager,
@@ -166,6 +167,7 @@ func run() error {
 		synth.NewMeterAdapter(meter),
 		logger,
 	)
+	synthesizer.SetMetrics(metrics)
 	leases := synth.NewLeaseAdapter(limiter)
 
 	objects := s3.Open(cfg.S3)
@@ -183,6 +185,8 @@ func run() error {
 	orchestrator := jobs.NewOrchestrator(
 		jobQueue, jobRepo, jobTexts, jobEngine, webhooks, consumerName(cfg), logger,
 	)
+	orchestrator.SetMetrics(metrics)
+	webhooks.SetMetrics(metrics)
 	orchestrator.Run(ctx)
 
 	// The catalogue follows the fleet: a deploy that changes the model's voices must
@@ -210,6 +214,7 @@ func run() error {
 		Handler: gatewayhttp.Router(gatewayhttp.Deps{
 			Logger:    logger,
 			Readiness: readiness,
+			Metrics:   metrics,
 			Admin:     gatewayhttp.NewAdminGuard(cfg.AdminKey, cfg.AdminAllowlist),
 			Tenants:   tenants.NewService(postgres.NewTenantRepository(pool)),
 			Auth:      auth.NewAuthenticator(postgres.NewAuthRepository(pool)),
@@ -424,23 +429,38 @@ func runSeedPlans(path string) error {
 	return nil
 }
 
-// voiceSyncInterval is how often the catalogue is refreshed from the fleet. Voices change
-// at deploy time, so this only has to be faster than an operator noticing.
-const voiceSyncInterval = time.Minute
+// Voice catalogue sync cadence.
+//
+// The first sync runs before any worker is ready, so it finds nothing. Polling fast
+// until the catalogue is populated closes a window in which every synthesis request
+// returned 422 unknown_voice - which is what a rolling deploy looked like from a
+// tenant's side, and what the RED metrics made visible.
+const (
+	voiceSyncInterval      = time.Minute
+	voiceSyncStartupPeriod = 2 * time.Second
+)
 
 // syncVoices keeps the catalogue in step with what the workers advertise.
 func syncVoices(ctx context.Context, catalogue *voices.Service, logger zerolog.Logger) {
-	ticker := time.NewTicker(voiceSyncInterval)
-	defer ticker.Stop()
+	interval := voiceSyncStartupPeriod
 
 	for {
 		if err := catalogue.Sync(ctx); err != nil && ctx.Err() == nil {
 			logger.Error().Err(err).Msg("voice catalogue sync failed")
+		} else if interval != voiceSyncInterval {
+			// Settle to the slow cadence once there is something to serve.
+			if found, err := catalogue.List(ctx, nil); err == nil && len(found) > 0 {
+				interval = voiceSyncInterval
+				logger.Info().Int("voices", len(found)).Msg("voice catalogue populated")
+			}
 		}
+
+		timer := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
+		case <-timer.C:
 		}
 	}
 }

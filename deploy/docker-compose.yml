@@ -157,8 +157,49 @@ services:
       mc mb --ignore-existing local/${VITTS_S3_BUCKET:-vitts}
       "
 
+  # Observability. US-19 asks compose to start these alongside the service, so a
+  # dashboard is available to whoever is debugging rather than a separate setup step.
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "${VITTS_PROM_PORT:-9090}:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    environment:
+      GF_SECURITY_ADMIN_USER: ${VITTS_GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${VITTS_GRAFANA_PASSWORD:-admin}
+      # Local only: anonymous viewing saves a login during development. Production
+      # keeps Grafana behind the operator's SSO, which is why this is not a default.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "${VITTS_GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+
 volumes:
   model:
+  promdata:
+  grafanadata:
   pgdata:
   redisdata:
   miniodata:

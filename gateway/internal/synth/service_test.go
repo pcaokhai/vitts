@@ -127,7 +127,7 @@ func newHarness(t *testing.T) harness {
 	})
 
 	pool, err := dispatch.NewPool([]string{worker.Addr()}, zerolog.New(io.Discard),
-		dispatch.Options{HealthInterval: 10 * time.Millisecond, ProbeInterval: 20 * time.Millisecond, Tick: 5 * time.Millisecond})
+		dispatch.Options{HealthInterval: 10 * time.Millisecond, ProbeInterval: 20 * time.Millisecond, Tick: 5 * time.Millisecond}, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, pool.Close()) })
 	pool.Start(context.Background())
@@ -140,7 +140,7 @@ func newHarness(t *testing.T) harness {
 	m := &recordingMeter{}
 
 	return harness{
-		service: synth.NewService(q, c, dispatch.NewDispatcher(pool),
+		service: synth.NewService(q, c, dispatch.NewDispatcher(pool, nil),
 			fakeCatalogue{voice: voices.Voice{ID: "maichi", ModelVersion: "model-1", Enabled: true}},
 			fakePlans{allowance: 1_000_000}, m, zerolog.New(io.Discard)),
 		quota: q, cache: c, meter: m, worker: worker,
@@ -225,7 +225,7 @@ func TestUnknownVoiceIsRefusedBeforeAnyWork(t *testing.T) {
 	t.Parallel()
 
 	h := newHarness(t)
-	service := synth.NewService(h.quota, h.cache, dispatch.NewDispatcher(mustPool(t, h.worker)),
+	service := synth.NewService(h.quota, h.cache, dispatch.NewDispatcher(mustPool(t, h.worker), nil),
 		fakeCatalogue{err: voices.ErrUnknown}, fakePlans{allowance: 1000}, h.meter,
 		zerolog.New(io.Discard))
 
@@ -269,7 +269,7 @@ func mustPool(t *testing.T, worker *fakeworker.Server) *dispatch.Pool {
 	t.Helper()
 
 	pool, err := dispatch.NewPool([]string{worker.Addr()}, zerolog.New(io.Discard),
-		dispatch.Options{HealthInterval: 10 * time.Millisecond, ProbeInterval: 20 * time.Millisecond, Tick: 5 * time.Millisecond})
+		dispatch.Options{HealthInterval: 10 * time.Millisecond, ProbeInterval: 20 * time.Millisecond, Tick: 5 * time.Millisecond}, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, pool.Close()) })
 	pool.Start(context.Background())

@@ -17,6 +17,7 @@ import (
 type Deps struct {
 	Logger    zerolog.Logger
 	Readiness *Readiness
+	Metrics   *telemetry.Metrics
 	Admin     *AdminGuard
 	Tenants   *tenants.Service
 	// Auth, Limiter and Plans protect the tenant API under /v1.
@@ -49,11 +50,20 @@ func Router(deps Deps) http.Handler {
 	mux.Use(RequestID)
 	mux.Use(Logger(deps.Logger))
 	mux.Use(Recover)
+	if deps.Metrics != nil {
+		// After Recover, so a panicked request is still counted as the 500 it became.
+		mux.Use(Observe(deps.Metrics))
+	}
 
 	mux.Get("/healthz", Healthz())
 	mux.Get("/readyz", Readyz(deps.Readiness))
 	// The contract is served from the binary, so what a client reads is always the
 	// contract this build implements (ADR-009).
+	if deps.Metrics != nil {
+		// No credential: the endpoint is private-network only, and requiring a key
+		// would mean issuing one to Prometheus (docs/07-permissions.md).
+		mux.Method(http.MethodGet, "/metrics", Metrics(deps.Metrics))
+	}
 	mux.Get("/openapi.json", OpenAPI())
 	mux.Get("/openapi.yaml", OpenAPIYAML())
 

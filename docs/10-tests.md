@@ -110,6 +110,11 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-91 | NFR-11 | Eviction ordering | object deleted before its row; a failed object delete keeps the row for the next sweep | `internal/maintenance/scheduler_test.go` | unit | done (2.8) | yes |
 | T-92 | FL-07 | Partition look-ahead | maintenance creates the next two months' partitions | `internal/maintenance/scheduler_test.go` | unit | done (2.8) | yes |
 | T-93 | FL-07 | Rollup is idempotent | the rollup window overlaps its interval so a missed tick self-heals | `internal/maintenance/scheduler_test.go`, live stack | unit | done (2.8) | yes |
+| T-94 | US-18 | Contract metrics exist | every metric US-18 names is registered and gathers | `internal/telemetry/metrics_test.go` | unit | done (3.1) | yes |
+| T-95 | US-18 | Label cardinality is bounded | status buckets to its class; unmatched routes share one label; tenant label is length-checked | `internal/telemetry/metrics_test.go`, `internal/http/metrics_test.go` | unit | done (3.1) | yes |
+| T-96 | US-18 | Metrics endpoint | `/metrics` serves without a credential; a router without metrics still serves | `internal/http/metrics_test.go` | unit | done (3.1) | yes |
+| T-97 | US-18 | Alerts fire on real data | stopping the worker drives `worker_ready` to 0 and fires NoReadyWorker | live stack | manual | done (3.1) | no |
+| T-98 | US-18 | Dashboard is provisioned | Grafana loads the committed dashboard JSON at startup | live stack | manual | done (3.1) | no |
 | T-26 | US-02 | Stack smoke | `make up` → worker healthy; one streamed synthesis, frames ordered, `last=true` present | `scripts/smoke.sh` | e2e | done (0.6, gateway leg 1.1) | no |
 | T-25 | US-01 | First frame latency | TTFA ≤ 150 ms for a 21-char input on the bench machine | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.4) | no |
 | T-24 | NFR-06 | Worker config validation | missing revision / partial `VITTS_S3_*` → exit non-zero with a named variable | `worker/tests/test_config.py` | unit | done (0.3) | yes |

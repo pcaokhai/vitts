@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/pcaokhai/vitts/gateway/internal/cache"
+	"github.com/pcaokhai/vitts/gateway/internal/telemetry"
 )
 
 // Orchestrator timings from FL-03.
@@ -115,8 +116,24 @@ type Orchestrator struct {
 	notifier Notifier
 	logger   zerolog.Logger
 	consumer string
+	metrics  *telemetry.Metrics
 	// sleep is injectable so retry backoff can be exercised without waiting.
 	sleep func(ctx context.Context, d time.Duration) error
+}
+
+// SetMetrics attaches the instrument set. Optional, so tests run without one.
+func (o *Orchestrator) SetMetrics(metrics *telemetry.Metrics) { o.metrics = metrics }
+
+// observeTerminal records a finished job, which is what an alert on job failure rate
+// and a dashboard of job duration are built from.
+func (o *Orchestrator) observeTerminal(job Job, status Status) {
+	if o.metrics == nil {
+		return
+	}
+	o.metrics.JobsTotal.WithLabelValues(string(status)).Inc()
+	if !job.CreatedAt.IsZero() {
+		o.metrics.JobDuration.WithLabelValues(string(status)).Observe(time.Since(job.CreatedAt).Seconds())
+	}
 }
 
 // NewOrchestrator wires the state machine.
@@ -387,6 +404,7 @@ func (o *Orchestrator) finish(ctx context.Context, job Job) error {
 
 	o.cleanUp(ctx, job)
 	o.notify(ctx, job.ID)
+	o.observeTerminal(job, StatusCompleted)
 
 	o.logger.Info().Str("job_id", job.ID.String()).
 		Int("segments", len(keys)).Int32("duration_ms", durationMS).Msg("job completed")
@@ -400,6 +418,7 @@ func (o *Orchestrator) failJob(ctx context.Context, job Job, reason string) erro
 
 	o.cleanUp(ctx, job)
 	o.notify(ctx, job.ID)
+	o.observeTerminal(job, StatusFailed)
 
 	o.logger.Error().Str("job_id", job.ID.String()).Str("reason", reason).Msg("job failed")
 	return nil

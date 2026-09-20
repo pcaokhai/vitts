@@ -1,0 +1,96 @@
+# Alert rules. Each one names the requirement it defends, so an alert firing points at a
+# promise rather than at a number someone once picked.
+groups:
+  - name: vitts-latency
+    rules:
+      - alert: StreamingTTFATooSlow
+        # NFR-01: streaming TTFA p95 <= 300 ms.
+        expr: histogram_quantile(0.95, sum by (le) (rate(tts_ttfa_seconds_bucket{mode="stream"}[5m]))) > 0.3
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "Streaming time-to-first-audio p95 is above 300 ms (NFR-01)"
+          description: "p95 TTFA is {{ $value | humanizeDuration }} over the last 5 minutes."
+
+      - alert: QueueWaitTooLong
+        # docs/02-architecture.md names this explicitly as the saturation signal.
+        expr: histogram_quantile(0.95, sum by (le, class) (rate(dispatch_queue_wait_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "Dispatch queue wait p95 above 1 s for class {{ $labels.class }}"
+          description: "Workers cannot keep up; expect overload rejections next."
+
+      - alert: RealTimeFactorAboveOne
+        # RTF above 1 means the fleet produces audio slower than it plays.
+        expr: histogram_quantile(0.95, sum by (le) (rate(tts_rtf_bucket[15m]))) > 1
+        for: 15m
+        labels:
+          severity: page
+        annotations:
+          summary: "Synthesis is slower than real time (p95 RTF {{ $value }})"
+
+  - name: vitts-availability
+    rules:
+      - alert: NoReadyWorker
+        # FL-06: /readyz is 200 only when at least one worker is ready.
+        expr: sum(worker_ready) == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "No worker is ready; the gateway cannot synthesize"
+
+      - alert: GatewayErrorRateHigh
+        expr: |
+          sum(rate(http_requests_total{status="5xx"}[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 0.001) > 0.02
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "Over 2% of requests are failing with 5xx"
+
+      - alert: OverloadRejectionsSustained
+        # NFR-05 allows fast rejection under load; sustained rejection means the fleet is
+        # too small, which is a capacity decision rather than an incident.
+        expr: sum(rate(dispatch_overloaded_total[15m])) > 1
+        for: 30m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Requests have been rejected as overloaded for 30 minutes"
+          description: "Add worker capacity or revisit the plan limits."
+
+      - alert: GatewayDown
+        expr: up{job="gateway"} == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Prometheus cannot scrape the gateway"
+
+  - name: vitts-jobs
+    rules:
+      - alert: JobFailureRateHigh
+        expr: |
+          sum(rate(jobs_total{status="failed"}[30m]))
+            / clamp_min(sum(rate(jobs_total[30m])), 0.001) > 0.1
+        for: 30m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "More than 10% of jobs are failing"
+
+      - alert: WebhookDeliveryFailing
+        expr: |
+          sum(rate(webhook_attempts_total{outcome="failed"}[30m]))
+            / clamp_min(sum(rate(webhook_attempts_total[30m])), 0.001) > 0.5
+        for: 30m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Most webhook attempts are failing"
+          description: "Usually a tenant endpoint, not us - check which job_ids repeat."
