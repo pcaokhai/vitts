@@ -34,6 +34,7 @@ type Config struct {
 	DatabaseURL      string
 	DatabaseMaxConns int32
 	AdminKey         string
+	WebhookSecret    string
 	AdminAllowlist   []netip.Prefix
 	WorkerAddrs      []string
 	RedisURL         string
@@ -64,6 +65,8 @@ const (
 	defaultRedisPoolSize = 32
 	// minAdminKeyLen matches the pre-go-live checklist in docs/08-variables.md.
 	minAdminKeyLen = 32
+	// minWebhookSecretLen keeps an HMAC key from being guessable.
+	minWebhookSecretLen = 32
 )
 
 var validLogLevels = map[string]struct{}{
@@ -80,6 +83,7 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		DatabaseURL:      value(lookup, "VITTS_DATABASE_URL", ""),
 		DatabaseMaxConns: defaultDatabaseMaxConns,
 		AdminKey:         value(lookup, "VITTS_ADMIN_KEY", ""),
+		WebhookSecret:    value(lookup, "VITTS_WEBHOOK_SIGNING_SECRET", ""),
 		WorkerAddrs:      splitList(value(lookup, "VITTS_WORKER_ADDRS", "")),
 		RedisURL:         value(lookup, "VITTS_REDIS_URL", ""),
 		RedisPoolSize:    defaultRedisPoolSize,
@@ -133,6 +137,14 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, &Error{
 			Variable: "VITTS_ADMIN_IP_ALLOWLIST",
 			Reason:   "must list at least one CIDR; admin endpoints are never open",
+		}
+	}
+	// A webhook signed with an empty secret is not signed at all, and a receiver that
+	// verifies would reject every delivery.
+	if len(cfg.WebhookSecret) < minWebhookSecretLen {
+		return Config{}, &Error{
+			Variable: "VITTS_WEBHOOK_SIGNING_SECRET",
+			Reason:   fmt.Sprintf("must be at least %d characters", minWebhookSecretLen),
 		}
 	}
 	if cfg.RedisURL == "" {

@@ -38,6 +38,7 @@ import (
 	"github.com/pcaokhai/vitts/gateway/internal/tenants"
 	"github.com/pcaokhai/vitts/gateway/internal/usage"
 	"github.com/pcaokhai/vitts/gateway/internal/voices"
+	"github.com/pcaokhai/vitts/gateway/internal/webhook"
 	"github.com/pcaokhai/vitts/gateway/migrations"
 )
 
@@ -177,14 +178,17 @@ func run() error {
 
 	// Jobs run at ClassBatch, so an interactive stream always outranks them (ADR-007).
 	jobEngine := jobs.NewWorkerEngine(dispatcher, jobTexts, cacheManager, logger)
+	webhooks := webhook.NewDispatcher(cfg.WebhookSecret, jobs.NewSSRFGuard(), logger)
 	orchestrator := jobs.NewOrchestrator(
-		jobQueue, jobRepo, jobTexts, jobEngine, nil, consumerName(cfg), logger,
+		jobQueue, jobRepo, jobTexts, jobEngine, webhooks, consumerName(cfg), logger,
 	)
 	orchestrator.Run(ctx)
 
 	// The catalogue follows the fleet: a deploy that changes the model's voices must
 	// show up without a migration (US-13).
 	go syncVoices(ctx, catalogue, logger)
+
+	keyManager := auth.NewKeys(postgres.NewKeyRepository(pool), nil)
 
 	readiness := gatewayhttp.NewReadiness()
 	readiness.Register("postgres", pool.Ready)
@@ -235,6 +239,18 @@ func run() error {
 				{
 					Method: stdhttp.MethodDelete, Pattern: "/jobs/{jobId}",
 					Scope: auth.ScopeJobs, Handler: gatewayhttp.CancelJob(jobService),
+				},
+				{
+					Method: stdhttp.MethodPost, Pattern: "/keys",
+					Scope: auth.ScopeKeys, Handler: gatewayhttp.CreateKey(keyManager),
+				},
+				{
+					Method: stdhttp.MethodGet, Pattern: "/keys",
+					Scope: auth.ScopeKeys, Handler: gatewayhttp.ListKeys(keyManager),
+				},
+				{
+					Method: stdhttp.MethodDelete, Pattern: "/keys/{keyId}",
+					Scope: auth.ScopeKeys, Handler: gatewayhttp.RevokeKey(keyManager),
 				},
 			},
 		}),

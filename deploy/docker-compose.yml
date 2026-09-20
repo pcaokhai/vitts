@@ -28,6 +28,7 @@ services:
       VITTS_HTTP_ADDR: ":8080"
       VITTS_LOG_LEVEL: ${VITTS_LOG_LEVEL:-info}
       VITTS_ADMIN_KEY: ${VITTS_ADMIN_KEY:?set a 32+ character admin key, see .env.example}
+      VITTS_WEBHOOK_SIGNING_SECRET: ${VITTS_WEBHOOK_SIGNING_SECRET:?set a 32+ character webhook secret}
       # Private ranges only: Docker's bridge (172.16/12) plus Docker Desktop's host
       # gateway, which is 192.168.65.1 on macOS. Production narrows this to the
       # operator's own network.

@@ -12,12 +12,13 @@ import (
 
 // baseEnv is the minimum that lets Load succeed; tests override one key at a time.
 var baseEnv = map[string]string{
-	"VITTS_DATABASE_URL":       "postgres://vitts:vitts@localhost:5432/vitts?sslmode=disable",
-	"VITTS_ADMIN_KEY":          strings.Repeat("k", 32),
-	"VITTS_ADMIN_IP_ALLOWLIST": "127.0.0.1/32",
-	"VITTS_WORKER_ADDRS":       "worker:50051",
-	"VITTS_REDIS_URL":          "redis://localhost:6379/0",
-	"VITTS_S3_BUCKET":          "vitts",
+	"VITTS_DATABASE_URL":           "postgres://vitts:vitts@localhost:5432/vitts?sslmode=disable",
+	"VITTS_ADMIN_KEY":              strings.Repeat("k", 32),
+	"VITTS_ADMIN_IP_ALLOWLIST":     "127.0.0.1/32",
+	"VITTS_WORKER_ADDRS":           "worker:50051",
+	"VITTS_REDIS_URL":              "redis://localhost:6379/0",
+	"VITTS_S3_BUCKET":              "vitts",
+	"VITTS_WEBHOOK_SIGNING_SECRET": strings.Repeat("w", 32),
 }
 
 func withBase(overrides map[string]string) map[string]string {
@@ -78,6 +79,10 @@ func TestLoadRejectsBadValues(t *testing.T) {
 		"empty admin allowlist": {
 			vars:     withBase(map[string]string{"VITTS_ADMIN_IP_ALLOWLIST": ""}),
 			variable: "VITTS_ADMIN_IP_ALLOWLIST",
+		},
+		"short webhook secret": {
+			vars:     withBase(map[string]string{"VITTS_WEBHOOK_SIGNING_SECRET": "short"}),
+			variable: "VITTS_WEBHOOK_SIGNING_SECRET",
 		},
 		"missing redis url": {
 			vars:     withBase(map[string]string{"VITTS_REDIS_URL": ""}),

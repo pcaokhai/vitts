@@ -40,7 +40,7 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-15 | US-14 | Idempotency | same key+body → same job; different body → 409; whitespace-only differences still match | `internal/jobs/service_test.go`, live stack | unit | done (2.3) | yes |
 | T-16 | US-04 | Merge duration | sum + gaps ± 50 ms; measured +0 ms on 6 real segments | `worker/tests/test_segment_merge.py`, live stack | unit | done (2.2) | yes |
 | T-17 | ADR-009 | Contract drift | regenerate → no diff | `make generate && git diff --exit-code` | contract | done (0.2) | yes |
-| T-18 | US-17 | Key revoke immediate | revoke → next call 401 | `http/keys_test.go` | int | proposed M2 | yes |
+| T-18 | US-17 | Key revoke immediate | revoke → next call 401 with no cache wait; scope denied → 403 | `internal/auth/keys_test.go`, live stack | unit | done (2.6) | yes |
 | T-19 | FL-07 | Scheduled jobs single-run | two replicas → lock → one execution | `sched/lock_test.go` | int | proposed M3 | yes |
 | T-20 | NFR-12 | Restore drill | restore dump into fresh DB → migrations idempotent | `13-runbook.md` procedure | manual | gap | — |
 | T-21 | US-02 | Health before weights | `ready=false`, `model_version` = pinned revision, answers over gRPC while loading | `worker/tests/test_server.py` | unit | done (0.3) | yes |
@@ -97,6 +97,13 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-78 | US-14 | Transient failure recovers | a segment that fails once still completes the job | `internal/jobs/orchestrator_test.go` | unit | done (2.4) | yes |
 | T-79 | US-14 | Cancel stops dispatch | a cancelled job dispatches no further segments and never reaches the model | `internal/jobs/orchestrator_test.go` | unit | done (2.4) | yes |
 | T-80 | US-14 | Failures are recorded | unreadable input or a failed merge fails the job with a reason | `internal/jobs/orchestrator_test.go` | unit | done (2.4) | yes |
+| T-81 | US-15 | Webhook is signed | `sha256=` HMAC over timestamp and body, verifiable by the receiver | `internal/webhook/webhook_test.go` | unit | done (2.5) | yes |
+| T-82 | US-15 | Signature resists replay | the same body with a different timestamp does not verify | `internal/webhook/webhook_test.go` | unit | done (2.5) | yes |
+| T-83 | US-15 | Webhook retries and stops | retries until 2xx, gives up after 5 attempts | `internal/webhook/webhook_test.go` | unit | done (2.5) | yes |
+| T-84 | US-15 | Guard runs per attempt | a URL that turns private between attempts is not called | `internal/webhook/webhook_test.go` | unit | done (2.5) | yes |
+| T-85 | US-17 | No scope escalation | a key cannot mint a key with scopes it does not hold | `internal/auth/keys_test.go` | unit | done (2.6) | yes |
+| T-86 | ADR-008 | Webhook hides bookkeeping | the payload carries tenant metadata but not internal keys | `internal/webhook/webhook_test.go` | unit | done (2.5) | yes |
+| T-87 | NFR-07 | Webhook secret required | a secret under 32 characters fails the boot | `internal/config/config_test.go` | unit | done (2.5) | yes |
 | T-26 | US-02 | Stack smoke | `make up` → worker healthy; one streamed synthesis, frames ordered, `last=true` present | `scripts/smoke.sh` | e2e | done (0.6, gateway leg 1.1) | no |
 | T-25 | US-01 | First frame latency | TTFA ≤ 150 ms for a 21-char input on the bench machine | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.4) | no |
 | T-24 | NFR-06 | Worker config validation | missing revision / partial `VITTS_S3_*` → exit non-zero with a named variable | `worker/tests/test_config.py` | unit | done (0.3) | yes |
