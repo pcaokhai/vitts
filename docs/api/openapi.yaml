@@ -322,17 +322,35 @@ components:
         revoked_at: { type: string, format: date-time, nullable: true }
     UsageReport:
       type: object
+      required: [from, to, days, totals, plan_chars_per_month]
       properties:
-        plan: { type: string }
-        period_chars_used: { type: integer }
-        period_chars_limit: { type: integer }
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        plan_chars_per_month:
+          type: integer
+          format: int64
+          description: The plan's monthly allowance, for comparison with totals.chars.
         days:
           type: array
-          items:
-            type: object
-            properties:
-              day: { type: string, format: date }
-              chars: { type: integer }
-              audio_ms: { type: integer }
-              requests: { type: integer }
-              cache_hits: { type: integer }
+          description: One entry per day that had usage; quiet days are omitted.
+          items: { $ref: '#/components/schemas/UsageDay' }
+        totals: { $ref: '#/components/schemas/UsageTotals' }
+
+    UsageDay:
+      type: object
+      required: [day, chars, audio_ms, requests, cache_hits]
+      properties:
+        day: { type: string, format: date-time }
+        chars: { type: integer, format: int64 }
+        audio_ms: { type: integer, format: int64 }
+        requests: { type: integer, format: int64 }
+        cache_hits: { type: integer, format: int64 }
+
+    UsageTotals:
+      type: object
+      required: [chars, audio_ms, requests, cache_hits]
+      properties:
+        chars: { type: integer, format: int64 }
+        audio_ms: { type: integer, format: int64 }
+        requests: { type: integer, format: int64 }
+        cache_hits: { type: integer, format: int64 }

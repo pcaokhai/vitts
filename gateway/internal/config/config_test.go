@@ -159,3 +159,29 @@ func TestWorkerAddressesAreSplitAndTrimmed(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"w1:50051", "w2:50051"}, cfg.WorkerAddrs)
 }
+
+// T-111. A console origin that a browser will not match must fail the boot, not the
+// first cross-origin request (ADR-012).
+func TestConsoleOriginMustBeABareOrigin(t *testing.T) {
+	t.Parallel()
+
+	for name, origin := range map[string]string{
+		"trailing slash": "https://console.vitts.dev/",
+		"with a path":    "https://console.vitts.dev/app",
+		"no scheme":      "console.vitts.dev",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := config.Load(env(withBase(map[string]string{"VITTS_CONSOLE_ORIGIN": origin})))
+
+			var cfgErr *config.Error
+			require.ErrorAs(t, err, &cfgErr)
+			require.Equal(t, "VITTS_CONSOLE_ORIGIN", cfgErr.Variable)
+		})
+	}
+
+	cfg, err := config.Load(env(withBase(map[string]string{
+		"VITTS_CONSOLE_ORIGIN": "https://console.vitts.dev,http://localhost:3001",
+	})))
+	require.NoError(t, err)
+	require.Len(t, cfg.ConsoleOrigins, 2)
+}

@@ -72,3 +72,9 @@ PY
 echo "==> pip-audit (worker)"
 ( cd worker && uv export --frozen --no-dev --no-emit-project > /tmp/vitts-requirements.txt )
 uvx pip-audit --strict --requirement /tmp/vitts-requirements.txt
+
+echo "==> npm audit (console)"
+# The console ships to browsers, so only production dependencies are in scope: a dev-only
+# advisory in the build toolchain is not something a tenant can be exposed to. Moderate
+# and above fails, matching the severity the other two gates act on.
+( cd console && npm audit --omit=dev --audit-level=moderate )

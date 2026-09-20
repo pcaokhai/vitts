@@ -34,14 +34,16 @@ audit: ## Scan dependencies for known vulnerabilities (reviewed exceptions in se
 	@if [ -x scripts/audit.sh ]; then ./scripts/audit.sh; else $(call pending,3.3,audit script); fi
 
 lint: ## golangci-lint, ruff, mypy, buf lint
-	@if command -v gitleaks >/dev/null; then gitleaks dir . --no-banner --redact; else $(call pending,0.2,gitleaks); fi
+	@if command -v gitleaks >/dev/null; then gitleaks dir . --no-banner --redact --config .gitleaks.toml; else $(call pending,0.2,gitleaks); fi
 	@if [ -f proto/buf.yaml ]; then buf lint proto; else $(call pending,0.2,buf lint); fi
 	@if [ -f gateway/go.mod ]; then cd gateway && golangci-lint run ./...; else $(call pending,1.1,golangci-lint); fi
 	@if [ -f worker/pyproject.toml ]; then cd worker && uv run ruff check . && uv run ruff format --check . && uv run mypy .; else $(call pending,0.3,ruff + mypy); fi
+	@if [ -d console/node_modules ]; then cd console && npm run --silent lint; else $(call pending,3.5,console eslint + tsc); fi
 
 test: ## Unit tests, both languages
 	@if [ -f gateway/go.mod ]; then cd gateway && $(GOTEST) ./...; else $(call pending,1.1,go test); fi
 	@if [ -f worker/pyproject.toml ]; then cd worker && uv run pytest; else $(call pending,0.3,pytest); fi
+	@if [ -d console/node_modules ]; then cd console && npm run --silent test; else $(call pending,3.5,console tests); fi
 
 # Same code path as the deploy's migrations job: the binary carries the migrations.
 migrate: ## Apply database migrations to VITTS_DATABASE_URL

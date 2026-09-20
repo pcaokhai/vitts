@@ -44,6 +44,9 @@ services:
       VITTS_S3_BUCKET: ${VITTS_S3_BUCKET:-vitts}
       VITTS_S3_ACCESS_KEY: ${VITTS_S3_ACCESS_KEY:-vitts-dev}
       VITTS_S3_SECRET_KEY: ${VITTS_S3_SECRET_KEY:-vitts-dev-secret}
+      # The console is a browser client on another origin, so the tenant API needs an
+      # explicit allowance for it. The admin surface stays same-origin (ADR-012).
+      VITTS_CONSOLE_ORIGIN: ${VITTS_CONSOLE_ORIGIN:-http://127.0.0.1:3001}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     ports:
       - "${VITTS_GATEWAY_PORT:-8080}:8080"
@@ -97,6 +100,24 @@ services:
     depends_on:
       minio-init:
         condition: service_completed_successfully
+
+  # The console is a pure API client: no database, no admin key, nothing to leak. It is
+  # deliberately not a dependency of the gateway (ADR-012).
+  console:
+    build:
+      context: ..
+      dockerfile: console/Dockerfile
+      args:
+        # Baked into the bundle at build time, so it must be the URL a *browser* uses —
+        # the host's published port, never the compose service name.
+        NEXT_PUBLIC_VITTS_API_URL: ${VITTS_PUBLIC_API_URL:-http://127.0.0.1:8080}
+    ports:
+      - "${VITTS_CONSOLE_PORT:-3001}:3001"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   postgres:
     image: postgres:16-alpine@sha256:3c5c8892d184f738f4fe282d14ddaa613a38f00f4189d2d94725ebe6f2909ddb

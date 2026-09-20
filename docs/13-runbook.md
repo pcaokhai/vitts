@@ -10,6 +10,10 @@
   boot with `database is at schema version N but this build needs M`, which is the
   intended failure. Locally, `make up` builds before starting for the same reason — a
   plain `docker compose up -d` reuses a stale image silently.
+- The console deploys independently and after the gateway. It is a pure API client
+  (ADR-012), so it can never break the API — but the API can break it: a gateway rolled
+  out without `VITTS_CONSOLE_ORIGIN` leaves the console loading and then failing every
+  request with a CORS error the browser reports and the gateway does not log.
 - Rollback: redeploy previous SHA; migrations are forward-only, so schema changes must be
   backward compatible for one release (expand/contract pattern).
 

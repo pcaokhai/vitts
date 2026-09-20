@@ -123,6 +123,12 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-105 | NFR-04 | Limiter survives a script flush | `SCRIPT FLUSH` mid-test → rate limit, lease and renew all still work | `internal/ratelimit/ratelimit_integration_test.go` | integration | done (3.4) | yes |
 | T-106 | ADR-011 | Degrade window is bounded | limiter down → served inside 60 s, `503 overloaded` + `Retry-After` past it; a success resets the window | `internal/http/ratelimit_test.go`, `internal/degrade/degrade_test.go` | unit | done (3.4) | yes |
 | T-107 | NFR-12 | Gateway refuses a stale schema | DB behind the binary's embedded migrations → boot fails naming both versions | `internal/storage/postgres`, `migrations/migrations_test.go`, drill 4 | unit + manual | done (3.4) | yes |
+| T-110 | US-13 | Voices without a key | no key → global voices, 200; a key narrows the listing; an unusable key is served as anonymous | `internal/http/ratelimit_test.go`, live stack | unit | done (3.5) | yes |
+| T-111 | ADR-012 | CORS is the console only | console origin gets the allowance; another origin gets none; the admin surface never does; a bad origin fails the boot | `internal/http/cors_test.go`, `internal/config/config_test.go` | unit | done (3.5) | yes |
+| T-112 | F-12 | Chart geometry | a quiet day still renders a mark; bars never overlap; an empty series does not divide by zero; the plan meter clamps | `console/src/lib/chart.test.ts` | unit | done (3.5) | yes |
+| T-113 | F-12 | The API's own words reach the screen | ApiError carries `detail`; usageRange covers n days inclusive and crosses months | `console/src/lib/api.test.ts` | unit | done (3.5) | yes |
+| T-114 | ADR-009 | Usage JSON is the contract | the response keys match docs/api/openapi.yaml § UsageReport | `internal/usage/report_test.go` | unit | done (3.5) | yes |
+| T-115 | US-16 | Quiet days are days | a sparse series is filled across the requested range, so one busy day does not fill the chart | `console/src/lib/chart.test.ts` | unit | done (3.5) | yes |
 | T-109 | NFR-05 | Waiter wakes without a release | capacity returns via a health snapshot with no release signal → the waiter is admitted, not left to its budget | `internal/dispatch/queue_test.go` | unit | done (3.4) | yes |
 | T-108 | US-03 | Stuck segmenting resumes | a job left in `segmenting` by a dead orchestrator is picked up and completed, not re-queued forever | `internal/jobs/orchestrator_test.go` | unit | done (3.4) | yes |
 | T-104 | NFR-12 | Exceptions expire | an accepted finding past its review_by date fails the audit | `scripts/audit.sh`, `security/accepted.yaml` | ci | done (3.3) | yes |
@@ -141,6 +147,9 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
    with more workers than one, concurrent handling sized from worker slots is the next
    throughput step. Needs its own task and an ADR (it touches the segment claim, the
    reconciler and ADR-003).
-6. No test restarts a dependency mid-suite. T-105 flushes Redis' script cache, which is
+6. The console has no browser test. Its pure logic is covered (T-112, T-113, T-115) and
+   the flows were driven by hand against the live stack in 3.5, but sign in, create and
+   revoke deserve a Playwright run in CI before the console has a second screen.
+7. No test restarts a dependency mid-suite. T-105 flushes Redis' script cache, which is
    the part that bit us, but a real restart also drops connections; a chaos step in the
    integration suite would have caught finding 1 a milestone earlier.

@@ -17,6 +17,7 @@ No secret is ever bundled into a client, image layer, or log line.
 | `VITTS_WORKER_ADDRS` | dispatch | server | env / DNS | — | low |
 | `VITTS_ADMIN_KEY` | admin | server | secret store | on operator change | critical |
 | `VITTS_ADMIN_IP_ALLOWLIST` | admin | server | env | — | medium |
+| `VITTS_CONSOLE_ORIGIN` | CORS allowance for the console, comma-separated bare origins; empty means no browser may call the tenant API | server | env | — | medium |
 | `VITTS_WEBHOOK_SIGNING_SECRET` | jobs | server | secret store | yearly, dual-key overlap | high |
 | `VITTS_TEXT_ENCRYPTION_KEY` | usage (opt-in text) | server | secret store | yearly | high (PII) |
 | `VITTS_STREAM_QUEUE_TIMEOUT` (2s) / `_SYNC_QUEUE_TIMEOUT` (10s) | dispatch | server | env | — | low |
@@ -37,6 +38,23 @@ No secret is ever bundled into a client, image layer, or log line.
 | `VITTS_S3_*` | encode/merge | server | secret store | high |
 | `VITTS_MAX_TEXT_CHARS` (3000) | server | server | env | low |
 
+## Console (ADR-012)
+
+The console is a separate image and holds no secret of its own. Its only configuration
+is the URL of the API a browser should call, which Next inlines into the bundle at build
+time — so it is a build argument, not a runtime variable, and changing it means a rebuild.
+
+| Variable | Where | Scope | Notes |
+|----------|-------|-------|-------|
+| `NEXT_PUBLIC_VITTS_API_URL` | console build | build arg | The gateway URL a *browser* reaches — never a compose service name |
+| `VITTS_PUBLIC_API_URL` | compose | build arg | What compose passes into the above |
+| `VITTS_CONSOLE_PORT` (3001) | compose | host port | Local only |
+
+`VITTS_CONSOLE_ORIGIN` on the gateway and `NEXT_PUBLIC_VITTS_API_URL` on the console are
+two halves of one setting: the first says which browser origin may call the API, the
+second says which API that browser calls. A deploy that changes one without the other
+produces a console that loads and then fails every request with a CORS error.
+
 ## Pre-go-live checklist
 
 - [ ] Secrets injected from the secret store, not `.env` files, in prod compose/k8s.
@@ -46,3 +64,5 @@ No secret is ever bundled into a client, image layer, or log line.
 - [ ] S3 bucket private; IAM user limited to the bucket prefix.
 - [ ] Logs verified free of `Authorization` headers and request text (grep in staging).
 - [ ] Backups: nightly `pg_dump` to S3, restore drill done once.
+- [ ] `VITTS_CONSOLE_ORIGIN` is the console's real origin over https, and matches the
+      console image's `NEXT_PUBLIC_VITTS_API_URL`.

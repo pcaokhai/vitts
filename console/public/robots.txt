@@ -1,0 +1,3 @@
+# The console is a tenant surface, not a marketing page.
+User-agent: *
+Disallow: /

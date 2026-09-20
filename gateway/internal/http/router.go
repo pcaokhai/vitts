@@ -28,6 +28,9 @@ type Deps struct {
 	// (1.9 synthesize, 1.13 voices, 2.3 jobs); passing them here is what puts them
 	// behind the guard chain, so a route cannot be registered outside it.
 	TenantAPI []Route
+	// ConsoleOrigins may call the tenant API from a browser. Empty means no
+	// cross-origin caller is allowed, which is the default (ADR-012).
+	ConsoleOrigins []string
 }
 
 // Route is one tenant endpoint.
@@ -37,6 +40,9 @@ type Route struct {
 	Handler http.HandlerFunc
 	// Scope the key must carry, or "" when the endpoint needs none beyond a valid key.
 	Scope auth.Scope
+	// Public marks a route readable without a key (US-13). A key is still honoured when
+	// one is sent, and narrows what the route returns.
+	Public bool
 }
 
 // Router builds the gateway's HTTP handler.
@@ -71,7 +77,11 @@ func Router(deps Deps) http.Handler {
 		mux.Mount("/admin", AdminRoutes(deps.Admin, deps.Tenants))
 	}
 	if deps.Auth != nil && deps.Limiter != nil && deps.Plans != nil {
-		mux.Mount("/v1", TenantRoutes(deps))
+		tenant := TenantRoutes(deps)
+		if len(deps.ConsoleOrigins) > 0 {
+			tenant = CORS(deps.ConsoleOrigins)(tenant)
+		}
+		mux.Mount("/v1", tenant)
 	}
 
 	// Routing failures are protocol-level, so they keep their own status. The code
@@ -106,14 +116,29 @@ func Router(deps Deps) http.Handler {
 // passed in rather than registered elsewhere.
 func TenantRoutes(deps Deps) http.Handler {
 	r := chi.NewRouter()
-	r.Use(Authenticate(deps.Auth))
-	r.Use(RateLimit(deps.Limiter, deps.Plans, deps.Metrics))
+
+	// One limiter for the whole tenant API, so its degrade window measures the
+	// dependency rather than one route's luck (ADR-011).
+	authenticate := Authenticate(deps.Auth)
+	optional := OptionalAuthenticate(deps.Auth)
+	limit := RateLimit(deps.Limiter, deps.Plans, deps.Metrics)
 
 	for _, route := range deps.TenantAPI {
 		handler := http.Handler(route.Handler)
 		if route.Scope != "" {
 			handler = RequireScope(route.Scope)(handler)
 		}
+
+		// A public route is not rate limited when it arrives without a key: the bucket is
+		// per key, and there is nothing to spend. The only public route is the voice
+		// catalogue, which the gateway answers from the copy it syncs in memory, so an
+		// anonymous read costs no database or Redis work (US-13).
+		if route.Public {
+			handler = optional(handler)
+		} else {
+			handler = authenticate(limit(handler))
+		}
+
 		r.Method(route.Method, route.Pattern, handler)
 	}
 

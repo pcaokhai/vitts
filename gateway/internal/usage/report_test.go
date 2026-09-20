@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -122,4 +123,55 @@ func TestCSVOfAnEmptyPeriodIsStillValid(t *testing.T) {
 	records, err := csv.NewReader(strings.NewReader(out.String())).ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 1, "a header row, so a consumer can still parse it")
+}
+
+// T-114. The JSON keys are the published contract (docs/api/openapi.yaml § UsageReport).
+// The schema and the struct had drifted — the schema described `plan`,
+// `period_chars_used` and `period_chars_limit`, none of which the gateway has ever
+// emitted — and nothing failed, because contract drift is only checked for generated
+// code. This pins the response shape so the next divergence is a test failure.
+func TestReportJSONMatchesThePublishedContract(t *testing.T) {
+	t.Parallel()
+
+	encoded, err := json.Marshal(usage.Report{
+		From:      time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+		To:        time.Date(2026, 3, 7, 0, 0, 0, 0, time.UTC),
+		Days:      []usage.Day{{Day: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), Chars: 10}},
+		Totals:    usage.Totals{Chars: 10, AudioMS: 700, Requests: 1, CacheHits: 0},
+		PlanLimit: 50_000,
+	})
+	require.NoError(t, err)
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(encoded, &decoded))
+
+	require.ElementsMatch(t,
+		[]string{"from", "to", "days", "totals", "plan_chars_per_month"},
+		keysOf(decoded),
+	)
+
+	days, ok := decoded["days"].([]any)
+	require.True(t, ok)
+	require.Len(t, days, 1)
+	day, ok := days[0].(map[string]any)
+	require.True(t, ok)
+	require.ElementsMatch(t,
+		[]string{"day", "chars", "audio_ms", "requests", "cache_hits"},
+		keysOf(day),
+	)
+
+	totals, ok := decoded["totals"].(map[string]any)
+	require.True(t, ok)
+	require.ElementsMatch(t,
+		[]string{"chars", "audio_ms", "requests", "cache_hits"},
+		keysOf(totals),
+	)
+}
+
+func keysOf(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	return keys
 }

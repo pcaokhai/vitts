@@ -216,14 +216,15 @@ func run() error {
 	server := &stdhttp.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: gatewayhttp.Router(gatewayhttp.Deps{
-			Logger:    logger,
-			Readiness: readiness,
-			Metrics:   metrics,
-			Admin:     gatewayhttp.NewAdminGuard(cfg.AdminKey, cfg.AdminAllowlist),
-			Tenants:   tenants.NewService(postgres.NewTenantRepository(pool)),
-			Auth:      auth.NewAuthenticator(postgres.NewAuthRepository(pool)),
-			Limiter:   limiter,
-			Plans:     planLimits,
+			Logger:         logger,
+			Readiness:      readiness,
+			Metrics:        metrics,
+			Admin:          gatewayhttp.NewAdminGuard(cfg.AdminKey, cfg.AdminAllowlist),
+			Tenants:        tenants.NewService(postgres.NewTenantRepository(pool)),
+			Auth:           auth.NewAuthenticator(postgres.NewAuthRepository(pool)),
+			Limiter:        limiter,
+			Plans:          planLimits,
+			ConsoleOrigins: cfg.ConsoleOrigins,
 			TenantAPI: []gatewayhttp.Route{
 				{
 					Method: stdhttp.MethodPost, Pattern: "/synthesize",
@@ -241,7 +242,9 @@ func run() error {
 				},
 				{
 					Method: stdhttp.MethodGet, Pattern: "/voices",
-					Scope: auth.ScopeSynth, Handler: gatewayhttp.ListVoices(catalogue),
+					// Public per US-13 AC-1: a key narrows the listing, it is not
+					// required to read it.
+					Public: true, Handler: gatewayhttp.ListVoices(catalogue),
 				},
 				{
 					Method: stdhttp.MethodPost, Pattern: "/jobs",

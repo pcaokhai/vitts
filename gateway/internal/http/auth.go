@@ -78,3 +78,45 @@ func RequireScope(scope auth.Scope) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// OptionalAuthenticate attaches an identity when the request carries a usable key and
+// lets the request through when it does not.
+//
+// It exists for US-13: the voice catalogue is readable without a key, and a key narrows
+// the listing to the caller's own voices. A malformed or invalid key is still passed
+// through as anonymous rather than rejected — the endpoint is public, so a bad key can
+// only ever cost the caller the tenant-scoped rows they were hoping to see, and failing
+// the request instead would make a public endpoint behave like a private one.
+//
+// A lookup outage is the exception: it is reported, because silently serving the public
+// subset would hide the outage and change what a keyed caller sees.
+func OptionalAuthenticate(authenticator *auth.Authenticator) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			secret, err := auth.ParseBearer(r.Header.Get(HeaderAuthorization))
+			if err != nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			identity, err := authenticator.Authenticate(r.Context(), secret)
+			if err != nil {
+				if errors.Is(err, auth.ErrLookupFailure) {
+					WriteProblem(w, r, &Error{Code: CodeInternal, Cause: err})
+					return
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			logger := zerolog.Ctx(r.Context()).With().
+				Str("tenant_id", identity.TenantID.String()).
+				Str("key_id", identity.KeyID.String()).
+				Str("plan_id", identity.PlanID).
+				Logger()
+
+			ctx := context.WithValue(logger.WithContext(r.Context()), identityKey{}, identity)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}

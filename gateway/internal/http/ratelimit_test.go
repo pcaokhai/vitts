@@ -161,6 +161,58 @@ func TestRateLimitRequiresAuthentication(t *testing.T) {
 
 // TestTenantAPIIsGuardedEndToEnd exercises the real /v1 chain: a route registered through
 // Deps must sit behind authentication, the rate limiter and its scope check.
+// T-110. US-13 AC-1: the voice catalogue reads without a key, and a key narrows it to
+// the caller's own voices. It had been registered behind the full guard chain, so an
+// anonymous read was a 401 and the documented behaviour did not exist.
+func TestAPublicRouteReadsWithoutAKeyAndStillHonoursOne(t *testing.T) {
+	t.Parallel()
+
+	var sawTenant []bool
+	limiter := &stubLimiter{decision: ratelimit.RateDecision{Allowed: true, Limit: 60, Remaining: 59}}
+	repo := repoFunc(func(context.Context, []byte) (auth.Identity, error) {
+		return liveIdentity(auth.ScopeSynth), nil
+	})
+
+	handler := gatewayhttp.Router(gatewayhttp.Deps{
+		Logger:    zerolog.New(&strings.Builder{}),
+		Readiness: gatewayhttp.NewReadiness(),
+		Auth:      auth.NewAuthenticator(repo),
+		Limiter:   limiter,
+		Plans:     stubPlans{perMinute: 60},
+		TenantAPI: []gatewayhttp.Route{{
+			Method: http.MethodGet, Pattern: "/voices", Public: true,
+			Handler: func(w http.ResponseWriter, r *http.Request) {
+				_, ok := gatewayhttp.IdentityFrom(r.Context())
+				sawTenant = append(sawTenant, ok)
+				w.WriteHeader(http.StatusOK)
+			},
+		}},
+	})
+
+	t.Run("no key", func(t *testing.T) {
+		res := do(t, handler, httptest.NewRequest(http.MethodGet, "/v1/voices", nil))
+		require.Equal(t, http.StatusOK, res.Code)
+	})
+
+	t.Run("valid key", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/v1/voices", nil)
+		req.Header.Set("Authorization", "Bearer "+goodSecret)
+		res := do(t, handler, req)
+		require.Equal(t, http.StatusOK, res.Code)
+	})
+
+	t.Run("unusable key is served as anonymous, not refused", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/v1/voices", nil)
+		req.Header.Set("Authorization", "Bearer not-a-key")
+		res := do(t, handler, req)
+		require.Equal(t, http.StatusOK, res.Code)
+	})
+
+	require.Equal(t, []bool{false, true, false}, sawTenant,
+		"the tenant is attached only when a usable key is sent")
+	require.Zero(t, limiter.calls, "an anonymous read has no bucket to spend")
+}
+
 func TestTenantAPIIsGuardedEndToEnd(t *testing.T) {
 	t.Parallel()
 

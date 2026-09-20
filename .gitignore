@@ -31,3 +31,11 @@ node_modules/
 /worker/.model/
 
 # local compose overrides (deploy/.env is committed as a dev default)
+
+# Browser-skill run artifacts: screenshots and page text, not source.
+.gstack/
+
+# Console: dependencies and build output.
+/console/node_modules/
+/console/.next/
+/console/next-env.d.ts

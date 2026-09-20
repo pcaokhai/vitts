@@ -25,10 +25,18 @@ jobs:
           go-version-file: gateway/go.mod
           cache-dependency-path: gateway/go.sum
       - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: console/package-lock.json
       - name: Toolchain
         run: make setup
       - name: Add GOPATH/bin to PATH
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Console dependencies
+        run: npm ci --prefix console
 
       - name: Lint
         run: make lint

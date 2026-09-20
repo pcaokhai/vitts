@@ -1,0 +1,18 @@
+# gitleaks runs over the working tree (`gitleaks dir .`), which includes build output and
+# tool state that git ignores. Those directories are generated, never reviewed, and the
+# "secrets" in them are framework-generated preview tokens — scanning them produces only
+# false positives and teaches everyone to ignore the scanner.
+#
+# Nothing here excuses a path that ships: source, config, docs, tests and fixtures are
+# all still scanned.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated output and local tool state"
+paths = [
+  '''^console/\.next/''',
+  '''^console/node_modules/''',
+  '''^\.gstack/''',
+  '''^worker/\.venv/''',
+]

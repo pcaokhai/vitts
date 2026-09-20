@@ -135,6 +135,9 @@ Acceptance criteria:
 2. Tenant-scoped voices appear only for their tenant.
 3. Preview URLs are public, cached, and generated at deploy from a fixed sentence.
 
+AC-1 was not implemented until 3.5: the route sat behind the full guard chain, so an
+anonymous read was a 401 (T-110).
+
 ## Epic E3 — Jobs and usage
 
 ### US-14 Create and track long-text jobs
@@ -165,6 +168,9 @@ Acceptance criteria:
 2. Data lags real time by ≤ 5 min (rollup cadence).
 3. CSV has a header row and RFC 4180 quoting.
 
+Console (3.5): daily chart over 7/30/90 days, period total against the plan allowance,
+and a CSV download that carries the key as a bearer header rather than a query string.
+
 ### US-17 API key management
 As Dev, I want to create, list and revoke keys with scopes. (F-06)
 
@@ -172,6 +178,9 @@ Acceptance criteria:
 1. Create returns the secret exactly once; list shows prefix only.
 2. Revoke → 204; subsequent use → 401 immediately.
 3. Every create/revoke writes `audit_log`.
+
+Console (3.5): create with scopes, secret revealed exactly once, revoke from the row.
+`GET /v1/keys` returns live keys only, so the console shows no revoked rows.
 
 ## Epic E4 — Operations
 

@@ -38,6 +38,7 @@ type Config struct {
 	AdminAllowlist   []netip.Prefix
 	WorkerAddrs      []string
 	RedisURL         string
+	ConsoleOrigins   []string
 	RedisPoolSize    int
 	S3               s3.Config
 	ShutdownTimeout  time.Duration
@@ -86,6 +87,7 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		WebhookSecret:    value(lookup, "VITTS_WEBHOOK_SIGNING_SECRET", ""),
 		WorkerAddrs:      splitList(value(lookup, "VITTS_WORKER_ADDRS", "")),
 		RedisURL:         value(lookup, "VITTS_REDIS_URL", ""),
+		ConsoleOrigins:   splitList(value(lookup, "VITTS_CONSOLE_ORIGIN", "")),
 		RedisPoolSize:    defaultRedisPoolSize,
 		S3: s3.Config{
 			Endpoint:       value(lookup, "VITTS_S3_ENDPOINT", ""),
@@ -163,6 +165,21 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, &Error{
 			Variable: "VITTS_WORKER_ADDRS",
 			Reason:   "must list at least one worker address",
+		}
+	}
+	// An origin must be a scheme and host with nothing after it: a browser compares the
+	// Origin header literally, so a trailing slash or a path silently matches nothing and
+	// the console fails at runtime with a CORS error instead of here (ADR-012).
+	for _, origin := range cfg.ConsoleOrigins {
+		parsed, err := url.Parse(origin)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" ||
+			parsed.Path != "" || parsed.RawQuery != "" {
+			return Config{}, &Error{
+				Variable: "VITTS_CONSOLE_ORIGIN",
+				Reason: fmt.Sprintf(
+					"%q must be a bare origin such as https://console.example.com", origin,
+				),
+			}
 		}
 	}
 	if cfg.OTLPEndpoint != "" {

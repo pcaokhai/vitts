@@ -1,0 +1,87 @@
+/* Technical editorial: a printed report, not a dashboard (docs/plans/3.5.md).
+   Ink on paper, one lacquer red, and a mono that carries every identifier and figure. */
+
+:root {
+  /* Ground and ink. Warm rather than pure white: paper, not a screen default. */
+  --paper: oklch(98.6% 0.004 85);
+  --paper-sunk: oklch(96.2% 0.006 85);
+  --rule: oklch(88% 0.006 85);
+  --rule-strong: oklch(72% 0.008 85);
+  --ink: oklch(21% 0.012 60);
+  --ink-muted: oklch(48% 0.012 60);
+  --ink-faint: oklch(64% 0.01 60);
+
+  /* Sơn mài lacquer red. The only accent: it marks the live figure, the current
+     nav item and the destructive action, and appears nowhere decoratively. */
+  --lacquer: oklch(48% 0.17 28);
+  --lacquer-bright: oklch(56% 0.19 28);
+  --lacquer-wash: oklch(94% 0.03 28);
+
+  --gold: oklch(72% 0.11 75);
+
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.125rem;
+  --text-title: clamp(1.5rem, 1.2rem + 1.2vw, 2rem);
+  --text-figure: clamp(2.75rem, 2rem + 4vw, 4.5rem);
+
+  --space-gutter: clamp(1.25rem, 0.8rem + 2vw, 3.5rem);
+  --measure: 68rem;
+
+  --duration: 180ms;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--text-base);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Every identifier, key prefix and figure is mono: in a console they are the content,
+   not decoration. */
+code,
+kbd,
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+a {
+  color: inherit;
+  text-underline-offset: 0.2em;
+  text-decoration-thickness: 1px;
+}
+
+:where(button, a, input, select):focus-visible {
+  outline: 2px solid var(--lacquer);
+  outline-offset: 2px;
+  border-radius: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
