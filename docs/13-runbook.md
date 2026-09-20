@@ -85,6 +85,12 @@ See `06-flows.md` FL-07. Each job logs start and finish with a duration. There i
 covers jobs that fail rather than run long. Add one when a scheduled job has actually
 overrun in production, so the threshold comes from a real duration.
 
+## Verifying a deploy by hand
+
+`docs/15-manual-test-guide.md` walks every feature with its pass criterion. After a
+release, sections 1 (health), 5 (refusals) and 16 (resilience) are the ones worth
+repeating: they cover what breaks quietly rather than loudly.
+
 ## Incident template
 
 Title, impact (tenants, duration), timeline (UTC+7), root cause, what stopped it,

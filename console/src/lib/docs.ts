@@ -86,7 +86,13 @@ export const ENDPOINTS: Endpoint[] = [
     method: "POST",
     path: "/v1/synthesize/stream",
     scope: "synth",
-    summary: "The same, streamed as it is produced. Also speaks WebSocket.",
+    summary: "The same, streamed as it is produced, in order.",
+  },
+  {
+    method: "GET",
+    path: "/v1/synthesize/ws",
+    scope: "synth",
+    summary: "WebSocket, for callers that cancel mid-utterance.",
   },
   {
     method: "GET",

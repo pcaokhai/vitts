@@ -109,9 +109,9 @@ export default function DocsPage() {
         <p className="doc-body">
           <code>/v1/synthesize/stream</code> sends audio as it is produced, in order.
           Hanging up cancels the worker within 200&nbsp;ms, and you are billed for the audio
-          delivered rather than the text you sent. A WebSocket is available at the same path
-          for callers that need to cancel mid-utterance, such as a voice bot handling
-          barge-in.
+          delivered rather than the text you sent. A WebSocket at{" "}
+          <code>/v1/synthesize/ws</code> serves callers that need to cancel mid-utterance,
+          such as a voice bot handling barge-in.
         </p>
         <CodeTabs samples={QUICKSTART.map((sample) => ({ ...sample, code: sample.streamCode }))} />
       </section>
