@@ -30,6 +30,9 @@ type Querier interface {
 	GetAPIKeyByHash(ctx context.Context, keyHash []byte) (GetAPIKeyByHashRow, error)
 	GetCacheEntry(ctx context.Context, cacheKey []byte) (AudioCache, error)
 	GetJob(ctx context.Context, arg GetJobParams) (Job, error)
+	// The orchestrator has no tenant in hand: it works from a queue entry. Tenant-scoped
+	// reads stay in GetJob, which is what every API path uses.
+	GetJobByID(ctx context.Context, id uuid.UUID) (Job, error)
 	GetJobByIdempotencyKey(ctx context.Context, arg GetJobByIdempotencyKeyParams) (Job, error)
 	GetPlan(ctx context.Context, id string) (Plan, error)
 	// Tenant and plan reads. Every tenant-owned query filters on tenant_id; a tenant that is

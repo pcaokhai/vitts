@@ -78,7 +78,7 @@ type Entry struct {
 }
 
 // Claim reads up to count entries for this consumer, blocking up to block.
-func (q *JobQueue) Claim(ctx context.Context, stream, consumer string, count int64, block time.Duration) ([]Entry, error) {
+func (q *JobQueue) claim(ctx context.Context, stream, consumer string, count int64, block time.Duration) ([]Entry, error) {
 	streams, err := q.rdb.XReadGroup(ctx, &goredis.XReadGroupArgs{
 		Group:    GroupOrchestrator,
 		Consumer: consumer,
@@ -111,7 +111,7 @@ func (q *JobQueue) Claim(ctx context.Context, stream, consumer string, count int
 
 // ClaimStale takes over entries another consumer left pending, which is how a crashed
 // orchestrator's work is recovered (FL-03 reconciler).
-func (q *JobQueue) ClaimStale(ctx context.Context, stream, consumer string, idle time.Duration, count int64) ([]Entry, error) {
+func (q *JobQueue) claimStale(ctx context.Context, stream, consumer string, idle time.Duration, count int64) ([]Entry, error) {
 	messages, _, err := q.rdb.XAutoClaim(ctx, &goredis.XAutoClaimArgs{
 		Stream:   stream,
 		Group:    GroupOrchestrator,

@@ -31,7 +31,7 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-06 | US-07 | Quota | at limit×1.05 → 402; reconcile fixes drift both ways and seeds a flushed Redis | `quota/*_test.go` | int | proposed M1 | yes |
 | T-07 | US-09 | Disconnect cancels worker | close client conn → worker call cancelled, lease released, partial audio not cached | `internal/synth/stream_test.go`, live stack | unit | done (1.10) | yes |
 | T-08 | US-11 | Cache hit bypasses worker | 2nd identical request → HIT, byte-identical, and the fake worker call count unchanged; billed | `cache/*_test.go`, `synth/cache_hit_test.go` | int | proposed M1 | yes |
-| T-09 | US-14 | Job resume | kill orchestrator mid-job → restart → done segments not re-run | `jobs/resume_test.go` | int | proposed M2 | yes |
+| T-09 | US-14 | Job resume | replayed job and segment entries after a crash → finished segments are not re-synthesized | `internal/jobs/orchestrator_test.go` | unit | done (2.4) | yes |
 | T-10 | US-15 | SSRF guard | http, loopback, RFC1918, link-local, CGNAT, IPv6 ULA, multicast, mixed DNS answer → 422 | `internal/jobs/webhook_guard_test.go`, live stack | unit | done (2.3) | yes
 | T-11 | NFR-07 | No secrets/text in logs | log capture contains metadata and a digest prefix, never a key secret, an Authorization header or request text | `internal/telemetry/redaction_test.go` | unit | done (1.14) | yes |
 | T-12 | 07-permissions | Tenant isolation | tenant A cannot read, cancel or list B's job → 404/empty | `internal/jobs/service_test.go` | unit | done (2.3) | yes |
@@ -92,6 +92,11 @@ Status legend: **existing** (in repo), **proposed** (to write in the stated mile
 | T-73 | US-14 | Cancel is idempotent | cancelling twice succeeds and stays cancelled | `internal/jobs/service_test.go` | unit | done (2.3) | yes |
 | T-74 | US-14 | Plan job limit | text past the plan's max_job_chars → 413 | `internal/jobs/service_test.go` | unit | done (2.3) | yes |
 | T-75 | ADR-008 | Internal metadata is private | the idempotency fingerprint never appears in a job response | `internal/jobs/service_test.go` | unit | done (2.3) | yes |
+| T-76 | US-14 | Job reaches completed | queued → segmenting → synthesizing → merging → completed with a usable output link | `internal/jobs/orchestrator_test.go`, live stack | unit | done (2.4) | yes |
+| T-77 | US-14 | Segment retry then fail | a segment retries to 3 attempts, then the job fails with the reason | `internal/jobs/orchestrator_test.go` | unit | done (2.4) | yes |
+| T-78 | US-14 | Transient failure recovers | a segment that fails once still completes the job | `internal/jobs/orchestrator_test.go` | unit | done (2.4) | yes |
+| T-79 | US-14 | Cancel stops dispatch | a cancelled job dispatches no further segments and never reaches the model | `internal/jobs/orchestrator_test.go` | unit | done (2.4) | yes |
+| T-80 | US-14 | Failures are recorded | unreadable input or a failed merge fails the job with a reason | `internal/jobs/orchestrator_test.go` | unit | done (2.4) | yes |
 | T-26 | US-02 | Stack smoke | `make up` → worker healthy; one streamed synthesis, frames ordered, `last=true` present | `scripts/smoke.sh` | e2e | done (0.6, gateway leg 1.1) | no |
 | T-25 | US-01 | First frame latency | TTFA ≤ 150 ms for a 21-char input on the bench machine | `worker/tests/test_engine_model.py` (`-m model`) | unit (opt-in) | done (0.4) | no |
 | T-24 | NFR-06 | Worker config validation | missing revision / partial `VITTS_S3_*` → exit non-zero with a named variable | `worker/tests/test_config.py` | unit | done (0.3) | yes |

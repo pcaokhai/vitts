@@ -154,10 +154,11 @@ func run() error {
 	meter.Start()
 	defer meter.Stop()
 
+	dispatcher := dispatch.NewDispatcher(workers)
 	synthesizer := synth.NewService(
 		synth.NewQuotaAdapter(quotas),
 		cacheManager,
-		dispatch.NewDispatcher(workers),
+		dispatcher,
 		catalogue,
 		planLimits,
 		synth.NewMeterAdapter(meter),
@@ -171,9 +172,15 @@ func run() error {
 	if err := jobQueue.EnsureGroups(ctx); err != nil {
 		return fmt.Errorf("job queue: %w", err)
 	}
-	jobService := jobs.NewService(
-		postgres.NewJobRepository(pool), jobQueue, jobTexts, jobs.NewSSRFGuard(), logger,
+	jobRepo := postgres.NewJobRepository(pool)
+	jobService := jobs.NewService(jobRepo, jobQueue, jobTexts, jobs.NewSSRFGuard(), logger)
+
+	// Jobs run at ClassBatch, so an interactive stream always outranks them (ADR-007).
+	jobEngine := jobs.NewWorkerEngine(dispatcher, jobTexts, cacheManager, logger)
+	orchestrator := jobs.NewOrchestrator(
+		jobQueue, jobRepo, jobTexts, jobEngine, nil, consumerName(cfg), logger,
 	)
+	orchestrator.Run(ctx)
 
 	// The catalogue follows the fleet: a deploy that changes the model's voices must
 	// show up without a migration (US-13).
@@ -406,4 +413,15 @@ func syncVoices(ctx context.Context, catalogue *voices.Service, logger zerolog.L
 		case <-ticker.C:
 		}
 	}
+}
+
+// consumerName identifies this replica inside the Redis consumer group. A stable,
+// unique name is what lets the reconciler tell "my own pending work" from "a dead
+// replica's" (FL-03).
+func consumerName(cfg config.Config) string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "gateway"
+	}
+	return fmt.Sprintf("%s-%s-%d", host, cfg.Env, os.Getpid())
 }

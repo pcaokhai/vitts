@@ -155,3 +155,161 @@ func toJob(row db.Job) (jobs.Job, error) {
 	}
 	return job, nil
 }
+
+// --- segment and state-machine operations ---------------------------------------
+//
+// These belong to the orchestrator's half of the aggregate. Every transition is a
+// conditional update: zero rows affected means someone else moved the job, and the
+// caller re-reads rather than overwriting (docs/05-data-model.md § 4).
+
+// Transition moves a job from one status to another, reporting whether it won the race.
+func (r *JobRepository) Transition(ctx context.Context, jobID uuid.UUID, from, to jobs.Status) (bool, error) {
+	affected, err := r.pool.Queries.TransitionJob(ctx, db.TransitionJobParams{
+		ID: jobID, Status: string(from), Status_2: string(to),
+	})
+	if err != nil {
+		return false, fmt.Errorf("transition job: %w", err)
+	}
+	return affected > 0, nil
+}
+
+// SetSegmentsTotal records the segment count and moves the job to synthesizing.
+func (r *JobRepository) SetSegmentsTotal(ctx context.Context, jobID uuid.UUID, total int32) (bool, error) {
+	affected, err := r.pool.Queries.SetJobSegmentsTotal(ctx, db.SetJobSegmentsTotalParams{
+		ID: jobID, SegmentsTotal: &total,
+	})
+	if err != nil {
+		return false, fmt.Errorf("set segments total: %w", err)
+	}
+	return affected > 0, nil
+}
+
+// CreateSegment records one planned segment. Repeating a create is harmless, which is
+// what lets segmentation be retried after a crash (T-09).
+func (r *JobRepository) CreateSegment(ctx context.Context, jobID uuid.UUID, seq int32, textHash []byte, chars int32) error {
+	if err := r.pool.Queries.CreateJobSegment(ctx, db.CreateJobSegmentParams{
+		ID: uuid.New(), JobID: jobID, Seq: seq, TextHash: textHash, Chars: chars,
+	}); err != nil {
+		return fmt.Errorf("create segment: %w", err)
+	}
+	return nil
+}
+
+// Segments lists a job's segments in order.
+func (r *JobRepository) Segments(ctx context.Context, jobID uuid.UUID) ([]jobs.Segment, error) {
+	rows, err := r.pool.Queries.ListJobSegments(ctx, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("list segments: %w", err)
+	}
+
+	out := make([]jobs.Segment, 0, len(rows))
+	for _, row := range rows {
+		segment := jobs.Segment{
+			JobID: row.JobID, Seq: row.Seq, TextHash: row.TextHash,
+			Chars: row.Chars, Status: jobs.SegmentStatus(row.Status), Attempts: row.Attempts,
+		}
+		if row.S3Key != nil {
+			segment.S3Key = *row.S3Key
+		}
+		if row.LastError != nil {
+			segment.LastError = *row.LastError
+		}
+		out = append(out, segment)
+	}
+	return out, nil
+}
+
+// ClaimSegment marks a segment running. False means another consumer has it, or it is
+// already done - which is how a replayed stream entry stops short of re-synthesizing.
+func (r *JobRepository) ClaimSegment(ctx context.Context, jobID uuid.UUID, seq int32) (bool, error) {
+	affected, err := r.pool.Queries.ClaimJobSegment(ctx, db.ClaimJobSegmentParams{JobID: jobID, Seq: seq})
+	if err != nil {
+		return false, fmt.Errorf("claim segment: %w", err)
+	}
+	return affected > 0, nil
+}
+
+// CompleteSegment marks a segment done and increments the job's counter in one
+// statement, so the two can never disagree (docs/05-data-model.md § 4).
+func (r *JobRepository) CompleteSegment(ctx context.Context, jobID uuid.UUID, seq int32, s3Key string) error {
+	if _, err := r.pool.Queries.CompleteJobSegment(ctx, db.CompleteJobSegmentParams{
+		JobID: jobID, Seq: seq, S3Key: &s3Key,
+	}); err != nil {
+		return fmt.Errorf("complete segment: %w", err)
+	}
+	return nil
+}
+
+// FailSegment records why a segment could not be produced.
+func (r *JobRepository) FailSegment(ctx context.Context, jobID uuid.UUID, seq int32, reason string) error {
+	if _, err := r.pool.Queries.FailJobSegment(ctx, db.FailJobSegmentParams{
+		JobID: jobID, Seq: seq, LastError: &reason,
+	}); err != nil {
+		return fmt.Errorf("fail segment: %w", err)
+	}
+	return nil
+}
+
+// UnfinishedSegments counts segments that are not done.
+func (r *JobRepository) UnfinishedSegments(ctx context.Context, jobID uuid.UUID) (int64, error) {
+	count, err := r.pool.Queries.CountUnfinishedSegments(ctx, jobID)
+	if err != nil {
+		return 0, fmt.Errorf("count unfinished segments: %w", err)
+	}
+	return count, nil
+}
+
+// Fail marks a job failed with a reason, unless it already reached a terminal state.
+func (r *JobRepository) Fail(ctx context.Context, jobID uuid.UUID, reason string) error {
+	if _, err := r.pool.Queries.FailJob(ctx, db.FailJobParams{ID: jobID, Error: &reason}); err != nil {
+		return fmt.Errorf("fail job: %w", err)
+	}
+	return nil
+}
+
+// Complete records the merged output.
+func (r *JobRepository) Complete(ctx context.Context, jobID uuid.UUID, outputKey string, durationMS int32) (bool, error) {
+	affected, err := r.pool.Queries.CompleteJob(ctx, db.CompleteJobParams{
+		ID: jobID, OutputS3Key: &outputKey, DurationMs: &durationMS,
+	})
+	if err != nil {
+		return false, fmt.Errorf("complete job: %w", err)
+	}
+	return affected > 0, nil
+}
+
+// Stuck lists live jobs that have not changed since `before`, which is how the
+// reconciler finds work a crashed orchestrator abandoned (FL-03).
+func (r *JobRepository) Stuck(ctx context.Context, before time.Time, limit int32) ([]jobs.Job, error) {
+	rows, err := r.pool.Queries.StuckJobs(ctx, db.StuckJobsParams{
+		UpdatedAt: pgtype.Timestamptz{Time: before, Valid: true}, Limit: limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list stuck jobs: %w", err)
+	}
+
+	out := make([]jobs.Job, 0, len(rows))
+	for _, row := range rows {
+		job, convErr := toJob(row)
+		if convErr != nil {
+			return nil, convErr
+		}
+		out = append(out, job)
+	}
+	return out, nil
+}
+
+// ByID loads a job without a tenant filter.
+//
+// Only the orchestrator uses it: it works from a queue entry that carries no tenant, and
+// every tenant-facing read goes through Get, which does filter (docs/07-permissions.md).
+func (r *JobRepository) ByID(ctx context.Context, jobID uuid.UUID) (jobs.Job, error) {
+	row, err := r.pool.Queries.GetJobByID(ctx, jobID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return jobs.Job{}, jobs.ErrNotFound
+		}
+		return jobs.Job{}, fmt.Errorf("get job by id: %w", err)
+	}
+	return toJob(row)
+}

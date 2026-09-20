@@ -41,7 +41,7 @@ passes locally where applicable. Do not start a task whose dependencies are unme
 | 2.1 | Migrations 0002 (jobs, job_segments, usage_daily) | 1.12 | schema | done this PR |
 | 2.2 | Worker `Segment` and `Merge`; T-16 | 0.4 | US-03, US-04 | done this PR |
 | 2.3 | Job API: create with idempotency, get, list, cancel; T-15, T-12 | 2.1 | US-14 (API) | done this PR |
-| 2.4 | Orchestrator: Redis Streams consumer, state machine, segment fan-out, retry, merge, reconciler; T-09 | 2.2,2.3 | US-14 |
+| 2.4 | Orchestrator: Redis Streams consumer, state machine, segment fan-out, retry, merge, reconciler; T-09 | 2.2,2.3 | US-14 | done this PR |
 | 2.5 | Webhook dispatcher with HMAC and SSRF guard; T-10 | 2.4 | US-15 |
 | 2.6 | Keys API; T-18 | 1.3 | US-17 |
 | 2.7 | Usage API JSON/CSV | 1.12 | US-16 |

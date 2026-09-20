@@ -36,6 +36,9 @@ services:
       VITTS_WORKER_ADDRS: ${VITTS_WORKER_ADDRS:-worker:50051}
       VITTS_REDIS_URL: redis://redis:6379/0
       VITTS_S3_ENDPOINT: http://minio:9000
+      # Signed download links must work from outside the compose network, so they are
+      # built against the host's published MinIO port rather than the internal name.
+      VITTS_S3_PUBLIC_ENDPOINT: ${VITTS_S3_PUBLIC_ENDPOINT:-http://127.0.0.1:9000}
       VITTS_S3_REGION: ${VITTS_S3_REGION:-us-east-1}
       VITTS_S3_BUCKET: ${VITTS_S3_BUCKET:-vitts}
       VITTS_S3_ACCESS_KEY: ${VITTS_S3_ACCESS_KEY:-vitts-dev}

@@ -79,6 +79,29 @@ type Job struct {
 	CompletedAt    *time.Time
 }
 
+// SegmentStatus is one segment's state.
+type SegmentStatus string
+
+// The segment states.
+const (
+	SegmentPending SegmentStatus = "pending"
+	SegmentRunning SegmentStatus = "running"
+	SegmentDone    SegmentStatus = "done"
+	SegmentFailed  SegmentStatus = "failed"
+)
+
+// Segment is one utterance-sized piece of a job.
+type Segment struct {
+	JobID     uuid.UUID
+	Seq       int32
+	TextHash  []byte
+	Chars     int32
+	Status    SegmentStatus
+	Attempts  int32
+	S3Key     string
+	LastError string
+}
+
 // Request is a job submission after authentication.
 type Request struct {
 	TenantID       uuid.UUID

@@ -75,3 +75,8 @@ where status in ('queued', 'segmenting', 'synthesizing', 'merging')
   and updated_at < $1
 order by updated_at
 limit $2;
+
+-- name: GetJobByID :one
+-- The orchestrator has no tenant in hand: it works from a queue entry. Tenant-scoped
+-- reads stay in GetJob, which is what every API path uses.
+select * from jobs where id = $1;

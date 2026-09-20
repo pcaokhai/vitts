@@ -273,6 +273,42 @@ func (q *Queries) GetJob(ctx context.Context, arg GetJobParams) (Job, error) {
 	return i, err
 }
 
+const getJobByID = `-- name: GetJobByID :one
+select id, tenant_id, api_key_id, idempotency_key, status, voice_id, format, sample_rate, normalize, params, total_chars, segments_total, segments_done, output_s3_key, duration_ms, webhook_url, webhook_attempts, metadata, error, created_at, updated_at, completed_at from jobs where id = $1
+`
+
+// The orchestrator has no tenant in hand: it works from a queue entry. Tenant-scoped
+// reads stay in GetJob, which is what every API path uses.
+func (q *Queries) GetJobByID(ctx context.Context, id uuid.UUID) (Job, error) {
+	row := q.db.QueryRow(ctx, getJobByID, id)
+	var i Job
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.ApiKeyID,
+		&i.IdempotencyKey,
+		&i.Status,
+		&i.VoiceID,
+		&i.Format,
+		&i.SampleRate,
+		&i.Normalize,
+		&i.Params,
+		&i.TotalChars,
+		&i.SegmentsTotal,
+		&i.SegmentsDone,
+		&i.OutputS3Key,
+		&i.DurationMs,
+		&i.WebhookUrl,
+		&i.WebhookAttempts,
+		&i.Metadata,
+		&i.Error,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
 const getJobByIdempotencyKey = `-- name: GetJobByIdempotencyKey :one
 select id, tenant_id, api_key_id, idempotency_key, status, voice_id, format, sample_rate, normalize, params, total_chars, segments_total, segments_done, output_s3_key, duration_ms, webhook_url, webhook_attempts, metadata, error, created_at, updated_at, completed_at from jobs where tenant_id = $1 and idempotency_key = $2
 `

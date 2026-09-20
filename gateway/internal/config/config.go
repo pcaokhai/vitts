@@ -84,11 +84,12 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		RedisURL:         value(lookup, "VITTS_REDIS_URL", ""),
 		RedisPoolSize:    defaultRedisPoolSize,
 		S3: s3.Config{
-			Endpoint:  value(lookup, "VITTS_S3_ENDPOINT", ""),
-			Region:    value(lookup, "VITTS_S3_REGION", "us-east-1"),
-			Bucket:    value(lookup, "VITTS_S3_BUCKET", ""),
-			AccessKey: value(lookup, "VITTS_S3_ACCESS_KEY", ""),
-			SecretKey: value(lookup, "VITTS_S3_SECRET_KEY", ""),
+			Endpoint:       value(lookup, "VITTS_S3_ENDPOINT", ""),
+			PublicEndpoint: value(lookup, "VITTS_S3_PUBLIC_ENDPOINT", ""),
+			Region:         value(lookup, "VITTS_S3_REGION", "us-east-1"),
+			Bucket:         value(lookup, "VITTS_S3_BUCKET", ""),
+			AccessKey:      value(lookup, "VITTS_S3_ACCESS_KEY", ""),
+			SecretKey:      value(lookup, "VITTS_S3_SECRET_KEY", ""),
 		},
 		ShutdownTimeout: defaultShutdownTimeout,
 	}

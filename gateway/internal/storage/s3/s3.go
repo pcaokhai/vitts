@@ -23,36 +23,52 @@ const opTimeout = 30 * time.Second
 
 // Config is what the adapter needs to reach a bucket.
 type Config struct {
-	Endpoint  string
-	Region    string
-	Bucket    string
-	AccessKey string
-	SecretKey string
+	Endpoint string
+	// PublicEndpoint is what signed URLs are built against. It differs from Endpoint
+	// whenever the gateway reaches storage on a private name a customer cannot resolve:
+	// in compose that is http://minio:9000 versus the host's published port, and in
+	// production an internal VPC endpoint versus the public one. Empty means they are
+	// the same.
+	PublicEndpoint string
+	Region         string
+	Bucket         string
+	AccessKey      string
+	SecretKey      string
 }
 
 // Client stores and retrieves objects.
 type Client struct {
-	api    *awss3.Client
+	api *awss3.Client
+	// signer is a second client pointed at the public endpoint, used only to presign.
+	// Signing with the private endpoint would produce a URL that is valid but
+	// unreachable, which a tenant discovers only when the download fails.
+	signer *awss3.Client
 	bucket string
 }
 
 // Open builds the client. It does not verify the bucket: readiness is checked by Ready,
 // so a temporarily unreachable bucket does not stop the gateway from booting.
 func Open(cfg Config) *Client {
-	api := awss3.New(awss3.Options{
-		Region:      cfg.Region,
-		Credentials: credentials.NewStaticCredentialsProvider(cfg.AccessKey, cfg.SecretKey, ""),
-		BaseEndpoint: func() *string {
-			if cfg.Endpoint == "" {
-				return nil
-			}
-			return aws.String(cfg.Endpoint)
-		}(),
-		// MinIO and most self-hosted gateways do not implement virtual-host addressing.
-		UsePathStyle: true,
-	})
+	build := func(endpoint string) *awss3.Client {
+		return awss3.New(awss3.Options{
+			Region:      cfg.Region,
+			Credentials: credentials.NewStaticCredentialsProvider(cfg.AccessKey, cfg.SecretKey, ""),
+			BaseEndpoint: func() *string {
+				if endpoint == "" {
+					return nil
+				}
+				return aws.String(endpoint)
+			}(),
+			UsePathStyle: true,
+		})
+	}
 
-	return &Client{api: api, bucket: cfg.Bucket}
+	public := cfg.PublicEndpoint
+	if public == "" {
+		public = cfg.Endpoint
+	}
+
+	return &Client{api: build(cfg.Endpoint), signer: build(public), bucket: cfg.Bucket}
 }
 
 // Get opens an object for reading. The caller closes the reader.

@@ -60,7 +60,7 @@ func (j *JobTexts) DeleteText(ctx context.Context, tenantID, jobID uuid.UUID) er
 // The object is never made public: a signed URL is scoped to one object and expires,
 // which is what US-14 acceptance criterion 4 asks for.
 func (j *JobTexts) SignedOutputURL(ctx context.Context, key string, ttl time.Duration) (string, error) {
-	signer := awss3.NewPresignClient(j.client.api)
+	signer := awss3.NewPresignClient(j.client.signer)
 
 	request, err := signer.PresignGetObject(ctx, &awss3.GetObjectInput{
 		Bucket: aws.String(j.client.bucket),
@@ -95,4 +95,18 @@ func OutputKey(tenantID, jobID uuid.UUID, format string) string {
 		ext = "bin"
 	}
 	return fmt.Sprintf("%s/%s/%s/output.%s", outputPrefix, tenantID, jobID, ext)
+}
+
+// PutSegment stores one synthesized segment's PCM and returns its key.
+func (j *JobTexts) PutSegment(ctx context.Context, tenantID, jobID uuid.UUID, seq int32, pcm []byte) (string, error) {
+	key := SegmentKey(tenantID, jobID, seq)
+	if err := j.client.Put(ctx, key, bytes.NewReader(pcm), int64(len(pcm))); err != nil {
+		return "", fmt.Errorf("put segment: %w", err)
+	}
+	return key, nil
+}
+
+// OutputKeyFor is where a job's merged file will land.
+func (j *JobTexts) OutputKeyFor(tenantID, jobID uuid.UUID, format string) string {
+	return OutputKey(tenantID, jobID, format)
 }
