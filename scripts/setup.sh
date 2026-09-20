@@ -10,7 +10,7 @@ GOLANGCI_LINT_VERSION=v2.6.1
 GITLEAKS_VERSION=v8.21.2
 GOVULNCHECK_VERSION=latest
 GOOSE_VERSION=v3.22.1
-SQLC_VERSION=v1.27.0
+SQLC_VERSION=v1.31.1
 
 need() { command -v "$1" >/dev/null 2>&1; }
 gobin="$(go env GOPATH)/bin"
